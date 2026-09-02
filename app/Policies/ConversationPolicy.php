@@ -54,7 +54,7 @@ class ConversationPolicy
      */
     public function delete(User $user, Conversation $conversation): bool
     {
-        return false;
+        return $this->view($user, $conversation);
     }
 
     /**

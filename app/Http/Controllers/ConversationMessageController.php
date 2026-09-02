@@ -24,51 +24,26 @@ class ConversationMessageController extends Controller
         } catch (RequestException $exception) {
             report($exception);
 
-            return response()->json($this->errorPayload(
-                'L’endpoint IA ha rifiutato la richiesta. Controlla chiave, modello e URL.',
-                [
-                    'status' => $exception->response->status(),
-                    'body' => $exception->response->json() ?? $exception->response->body(),
-                ],
-            ), 502);
+            return response()->json([
+                'message' => 'L’endpoint IA ha rifiutato la richiesta. Controlla chiave, modello e URL.',
+            ], 502);
         } catch (RuntimeException $exception) {
-            return response()->json($this->errorPayload($exception->getMessage()), 409);
+            return response()->json(['message' => $exception->getMessage()], 409);
         } catch (Throwable $exception) {
             report($exception);
 
-            return response()->json($this->errorPayload(
-                'Qualcosa è andato storto nel contatto con l’IA.',
-            ), 500);
+            return response()->json([
+                'message' => 'Qualcosa è andato storto nel contatto con l’IA.',
+            ], 500);
         }
 
-        $payload = [
+        return response()->json([
             'reply' => $result['reply'],
-            'memory_changes' => $result['memory_changes'],
-            'memory_error' => $result['memory_error'],
+            'conversation_title' => $result['conversation_title'],
             'calendar_error' => $result['calendar_error'],
             'integration_errors' => $result['integration_errors'],
             'proposal' => $result['proposal'],
             'proposals' => $result['proposals'],
-        ];
-
-        if (config('ai.debug')) {
-            $payload['raw'] = $result['raw'];
-        }
-
-        return response()->json($payload);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function errorPayload(string $message, ?array $raw = null): array
-    {
-        $payload = ['message' => $message];
-
-        if (config('ai.debug') && $raw !== null) {
-            $payload['raw'] = $raw;
-        }
-
-        return $payload;
+        ]);
     }
 }

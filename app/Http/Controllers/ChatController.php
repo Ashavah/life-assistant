@@ -42,6 +42,12 @@ class ChatController extends Controller
             'messages',
             'externalActionProposals' => fn ($query) => $query->orderBy('id'),
         ]);
+        $knowledgeIngestions = $selectedCharacter?->knowledgeIngestions()
+            ->whereNull('purged_at')
+            ->with(['items.character'])
+            ->latest('id')
+            ->limit(20)
+            ->get() ?? collect();
 
         $connections = $request->user()
             ->serviceConnections()
@@ -64,6 +70,7 @@ class ChatController extends Controller
             'characters' => $characters,
             'selectedCharacter' => $selectedCharacter,
             'selectedConversation' => $selectedConversation,
+            'knowledgeIngestions' => $knowledgeIngestions,
             'integrationConnections' => $connections,
             'integrationProviders' => $providers,
             'integrationConfigured' => $configured,

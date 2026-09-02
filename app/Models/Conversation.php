@@ -20,6 +20,8 @@ class Conversation extends Model
         'title',
         'status',
         'summary',
+        'context_summary',
+        'memory_consolidated_through_message_id',
         'last_message_at',
         'closed_at',
     ];
@@ -28,6 +30,7 @@ class Conversation extends Model
     {
         return [
             'status' => ConversationStatus::class,
+            'memory_consolidated_through_message_id' => 'integer',
             'last_message_at' => 'datetime',
             'closed_at' => 'datetime',
         ];

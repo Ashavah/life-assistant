@@ -27,14 +27,14 @@ beforeEach(function () {
     $this->actingAs(User::factory()->create());
 });
 
-test('il pannello account espone google e nasconde le altre piattaforme', function () {
+test('il pannello account espone google e spotify e nasconde le altre piattaforme', function () {
     Character::factory()->global()->for(multiProviderUser())->create();
 
     $this->get(route('home', ['account_settings' => 1]))
         ->assertOk()
         ->assertSee('Google')
+        ->assertSee('Spotify')
         ->assertDontSee('Microsoft 365')
-        ->assertDontSee('Spotify')
         ->assertDontSee('Notion')
         ->assertDontSee('Slack')
         ->assertDontSee('Dropbox')

@@ -51,4 +51,14 @@ class Character extends Model
     {
         return $this->hasMany(ExternalActionProposal::class);
     }
+
+    public function knowledgeIngestions(): HasMany
+    {
+        return $this->hasMany(KnowledgeIngestion::class);
+    }
+
+    public function proposedKnowledgeItems(): HasMany
+    {
+        return $this->hasMany(KnowledgeIngestionItem::class);
+    }
 }

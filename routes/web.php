@@ -10,6 +10,7 @@ use App\Http\Controllers\ConversationController;
 use App\Http\Controllers\ConversationMessageController;
 use App\Http\Controllers\ExternalActionProposalController;
 use App\Http\Controllers\GoogleServiceConnectionController;
+use App\Http\Controllers\KnowledgeIngestionController;
 use App\Http\Controllers\ServiceConnectionController;
 use Illuminate\Support\Facades\Route;
 
@@ -38,12 +39,23 @@ Route::middleware('auth')->group(function (): void {
         ->name('characters.update');
     Route::delete('/characters/{character}', [CharacterController::class, 'destroy'])
         ->name('characters.destroy');
+    Route::post('/characters/{character}/knowledge-ingestions', [KnowledgeIngestionController::class, 'store'])
+        ->middleware('throttle:10,1')
+        ->name('knowledge-ingestions.store');
+    Route::get('/knowledge-ingestions/{knowledgeIngestion}', [KnowledgeIngestionController::class, 'show'])
+        ->name('knowledge-ingestions.show');
+    Route::post('/knowledge-ingestions/{knowledgeIngestion}/confirm', [KnowledgeIngestionController::class, 'confirm'])
+        ->name('knowledge-ingestions.confirm');
+    Route::post('/knowledge-ingestions/{knowledgeIngestion}/reject', [KnowledgeIngestionController::class, 'reject'])
+        ->name('knowledge-ingestions.reject');
     Route::post('/conversations', [ConversationController::class, 'store'])
         ->name('conversations.store');
     Route::post('/conversations/{conversation}/messages', [ConversationMessageController::class, 'store'])
         ->name('conversations.messages.store');
     Route::post('/conversations/{conversation}/closed', [ClosedConversationController::class, 'store'])
         ->name('conversations.closed.store');
+    Route::delete('/conversations/{conversation}', [ConversationController::class, 'destroy'])
+        ->name('conversations.destroy');
 
     Route::get('/integrations/google/{provider}/redirect', [GoogleServiceConnectionController::class, 'redirect'])
         ->name('google-services.redirect');

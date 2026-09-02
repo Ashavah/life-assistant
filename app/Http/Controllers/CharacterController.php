@@ -22,7 +22,7 @@ class CharacterController extends Controller
             'description' => $description,
             'system_prompt' => filled($attributes['system_prompt'] ?? null)
                 ? trim($attributes['system_prompt'])
-                : "Sei {$name}, uno specialista di Life Assistant. Il tuo ambito è: {$description}. Rispondi soltanto nel tuo ambito e usa esclusivamente il contesto e le memorie fornite.",
+                : "Sei {$name}, uno specialista di Life Assistant. Il tuo ambito è: {$description}. Rispondi soltanto nel tuo ambito. Usa la tua memoria e il contesto di questa chat per la continuità. Se l’utente nomina un altro assistente puoi consultarne i fatti per un confronto, senza parlare a nome loro.",
             'tone' => filled($attributes['tone'] ?? null)
                 ? trim($attributes['tone'])
                 : 'Chiaro, concreto e professionale.',

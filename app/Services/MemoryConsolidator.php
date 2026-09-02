@@ -5,54 +5,66 @@ namespace App\Services;
 use App\Models\Character;
 use App\Models\Conversation;
 use App\Models\Memory;
-use App\Models\MemoryChange;
 use App\Models\Message;
+use App\Services\Knowledge\MemoryWriter;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
 
 class MemoryConsolidator
 {
-    public function __construct(private AiChatClient $client) {}
+    public function __construct(
+        private AiChatClient $client,
+        private MemoryWriter $memoryWriter,
+    ) {}
 
     /**
-     * @return array{summary: string|null, changes: int}
+     * @return array{summary: string|null, title: string|null, changes: int}
      */
-    public function consolidate(Conversation $conversation): array
+    public function consolidate(Conversation $conversation, bool $fullTranscript = false): array
     {
         $conversation->loadMissing('character');
-        $charactersQuery = Character::query()
-            ->where('user_id', $conversation->user_id)
+        $characters = $this->targetCharacters($conversation);
+        $transcriptLimit = $fullTranscript
+            ? (int) config('ai.memory_close_messages', 40)
+            : (int) config('ai.memory_incremental_messages', 16);
+
+        $messages = $conversation->messages()
+            ->select(['id', 'role', 'content'])
             ->when(
-                $conversation->character->is_global,
-                fn ($query) => $query->where('is_global', false),
-                fn ($query) => $query->whereKey($conversation->character_id),
-            );
-
-        $characters = $charactersQuery
-            ->with(['memories' => fn ($query) => $query->active()->orderByDesc('importance')])
-            ->get()
-            ->keyBy(fn (Character $character): string => $character->slug);
-
-        $transcript = $conversation->messages()
-            ->select(['role', 'content'])
+                $fullTranscript ? null : $conversation->memory_consolidated_through_message_id,
+                fn ($query, int $messageId) => $query->where('id', '>', $messageId),
+            )
             ->reorder()
-            ->latest('id')
-            ->limit(100)
-            ->get()
-            ->reverse()
+            ->when(
+                $fullTranscript,
+                fn ($query) => $query->latest('id'),
+                fn ($query) => $query->oldest('id'),
+            )
+            ->limit($transcriptLimit)
+            ->get();
+
+        if ($fullTranscript) {
+            $messages = $messages->reverse()->values();
+        }
+
+        $transcript = $messages
             ->map(fn (Message $message): string => strtoupper($message->role).': '.$message->content)
             ->implode("\n");
 
         if ($transcript === '') {
-            return ['summary' => null, 'changes' => 0];
+            return [
+                'summary' => $conversation->context_summary,
+                'title' => $conversation->title,
+                'changes' => 0,
+            ];
         }
 
         $existingMemories = $characters
             ->map(function (Character $character): string {
                 $items = $character->memories
+                    ->take((int) config('ai.max_memories_per_character', 40))
                     ->map(fn (Memory $memory): string => sprintf(
                         '- %s | %s | %s',
                         $memory->memory_key,
@@ -65,55 +77,136 @@ class MemoryConsolidator
             })
             ->implode("\n\n");
 
+        $knownSummary = filled($conversation->context_summary)
+            ? "RIASSUNTO GIÀ NOTO DI QUESTA CHAT:\n{$conversation->context_summary}\n\n"
+            : '';
+        $titleInstruction = filled($conversation->title)
+            ? "TITOLO ATTUALE: {$conversation->title}. Non modificarlo e restituisci title null.\n\n"
+            : "TITOLO ATTUALE: assente. Genera un titolo di 2-6 parole sull'argomento principale.\n\n";
+
         $result = $this->client->completeStructured(
             [[
                 'role' => 'user',
-                'content' => "MEMORIE ESISTENTI:\n{$existingMemories}\n\nCONVERSAZIONE:\n{$transcript}",
+                'content' => "{$titleInstruction}{$knownSummary}MEMORIE ESISTENTI:\n{$existingMemories}\n\nMESSAGGI DA ASSORBIRE:\n{$transcript}",
             ]],
-            $this->extractionPrompt($characters),
+            $this->extractionPrompt($conversation->character, $characters, $fullTranscript),
         );
 
         $summary = Arr::get($result, 'summary');
         $summary = is_string($summary) && trim($summary) !== '' ? trim($summary) : null;
+        $title = Arr::get($result, 'title');
+        $title = is_string($title) && trim($title) !== ''
+            ? Str::limit(trim($title), 80, '')
+            : null;
         $changes = Arr::get($result, 'changes', []);
 
         if (! is_array($changes)) {
             throw new RuntimeException('La risposta IA non contiene una lista changes valida.');
         }
 
-        $appliedChanges = $this->applyChanges(
+        if ($fullTranscript && $summary === null) {
+            throw new RuntimeException('La risposta IA non contiene il riepilogo finale della conversazione.');
+        }
+
+        $appliedChanges = $this->memoryWriter->apply(
             $changes,
             $characters,
             $conversation,
             $conversation->messages()->where('role', 'assistant')->reorder()->latest('id')->first(),
         );
 
+        $conversation->update([
+            'context_summary' => $summary !== null
+                ? Str::limit(
+                    $summary,
+                    (int) config('ai.conversation_summary_max_characters', 8000),
+                    '',
+                )
+                : $conversation->context_summary,
+            'title' => $conversation->title ?? $title,
+            'memory_consolidated_through_message_id' => $messages->max('id'),
+        ]);
+
         return [
             'summary' => $summary,
+            'title' => $title,
             'changes' => $appliedChanges,
         ];
     }
 
     /**
+     * @return Collection<string, Character>
+     */
+    private function targetCharacters(Conversation $conversation): Collection
+    {
+        $query = Character::query()->where('user_id', $conversation->user_id);
+
+        if (! $conversation->character->is_global) {
+            $query->whereKey($conversation->character_id);
+        }
+
+        return $query
+            ->with(['memories' => fn ($memories) => $memories->active()->orderByDesc('importance')->orderByDesc('last_reinforced_at')])
+            ->get()
+            ->keyBy(fn (Character $character): string => $character->slug);
+    }
+
+    /**
      * @param  Collection<string, Character>  $characters
      */
-    private function extractionPrompt(Collection $characters): string
-    {
+    private function extractionPrompt(
+        Character $speaker,
+        Collection $characters,
+        bool $fullTranscript,
+    ): string {
         $targets = $characters
             ->map(fn (Character $character): string => "- {$character->slug}: {$character->description}")
             ->implode("\n");
 
-        return <<<PROMPT
-Sei il motore di memoria di Life Assistant. Estrai soltanto fatti durevoli e utili da ricordare, non saluti, supposizioni, consigli dell'assistente o dettagli effimeri.
+        $policy = $speaker->is_global
+            ? <<<'PROMPT'
+Il parlante è il Globale: unico autorizzato a unire memorie.
+- Assegna un fatto a uno specialista SOLO quando corrisponde chiaramente alla sua descrizione. Se non c'è una corrispondenza precisa, non modificare quello specialista.
+- Ogni specialista conserva soltanto la propria prospettiva del fatto. Non fargli parlare o memorizzare conclusioni per conto di un altro.
+- La memoria del Globale deve DERIVARE dalle memorie specialistiche: salva solo sintesi trasversali o connessioni supportate da almeno due fatti specialistici esistenti o creati nello stesso risultato.
+- Un fatto relativo a un solo ambito appartiene soltanto allo specialista pertinente, non al Globale.
+- Non duplicare nel Globale il testo delle memorie specialistiche e non creare sintesi prive di evidenza.
+PROMPT
+            : <<<PROMPT
+Il parlante è lo specialista {$speaker->slug}.
+- Puoi scrivere o disattivare SOLO memorie con character "{$speaker->slug}".
+- Non unire, copiare o correggere memorie di altri specialisti.
+- Ignora qualsiasi fatto che non rientra nel suo ambito.
+- Arricchisci nel tempo la sua prospettiva: integra precisazioni e sviluppi nella memoria esistente pertinente.
+PROMPT;
 
-Destinatari autorizzati e relativi ambiti:
+        $summaryPolicy = $fullTranscript
+            ? 'Il campo summary deve essere un riepilogo finale dettagliato e autonomo: argomenti trattati, fatti importanti, decisioni, preferenze, vincoli, sviluppi e conclusioni. Non omettere elementi utili solo perché sono già nelle memorie.'
+            : 'Il campo summary deve aggiornare sinteticamente la continuità della chat.';
+
+        return <<<PROMPT
+Sei il motore di memoria di Life Assistant. Estrai soltanto fatti durevoli e utili nel tempo: preferenze, vincoli, decisioni, scadenze ricorrenti, relazioni, obiettivi. Non salvare saluti, consigli dell'assistente, ipotesi o dettagli che scadono in poche ore.
+
+{$policy}
+
+{$summaryPolicy}
+
+Destinatari autorizzati:
 {$targets}
 
-Ogni fatto va assegnato solo ai destinatari che ne hanno davvero bisogno. Non creare memoria per il personaggio global. Aggiorna una chiave esistente quando il fatto la corregge o rafforza. Usa deactivate quando un fatto esistente è esplicitamente smentito o non è più valido.
+Le MEMORIE ESISTENTI sono lo stato corrente, non nuove osservazioni:
+- riusa sempre la stessa key quando i nuovi messaggi parlano dello stesso soggetto, anche con parole diverse;
+- con upsert restituisci un contenuto autonomo e completo che unisce ciò che resta valido con la nuova precisazione;
+- correggi il contenuto quando i nuovi messaggi smentiscono o sostituiscono un dettaglio;
+- aumenta confidence o importance solo quando i nuovi messaggi forniscono conferme reali;
+- non emettere alcuna modifica se i nuovi messaggi non aggiungono, correggono o smentiscono nulla;
+- usa deactivate soltanto quando l'intero fatto non è più valido; se cambia solo un dettaglio, usa upsert sulla stessa key.
+Se c'è un RIASSUNTO GIÀ NOTO, aggiornalo in "summary" in modo cumulativo: conserva i fatti ancora veri e incorpora i nuovi, senza ripetere tutta la chat.
 
 Rispondi esclusivamente con JSON:
 {
-  "summary": "riassunto molto breve della conversazione",
+  "title": "titolo breve di 2-6 parole se richiesto, altrimenti null",
+  "summary": "riassunto persistente di questa chat, utile per la continuità",
   "changes": [
     {
       "character": "uno dei destinatari autorizzati",
@@ -129,117 +222,5 @@ Rispondi esclusivamente con JSON:
 }
 importance deve essere tra 1 e 5, confidence tra 0 e 1. Se non c'è nulla da ricordare, changes deve essere [].
 PROMPT;
-    }
-
-    /**
-     * @param  array<int, mixed>  $changes
-     * @param  Collection<string, Character>  $characters
-     */
-    private function applyChanges(
-        array $changes,
-        $characters,
-        Conversation $conversation,
-        ?Message $sourceMessage,
-    ): int {
-        return DB::transaction(function () use ($changes, $characters, $conversation, $sourceMessage): int {
-            $applied = 0;
-
-            foreach ($changes as $change) {
-                if (! is_array($change)) {
-                    continue;
-                }
-
-                $characterSlug = Arr::get($change, 'character');
-                $character = is_string($characterSlug) ? $characters->get($characterSlug) : null;
-                $action = Arr::get($change, 'action');
-                $memoryKey = Str::limit(
-                    Str::slug((string) Arr::get($change, 'key'), '_'),
-                    120,
-                    '',
-                );
-
-                if (! $character || ! in_array($action, ['upsert', 'deactivate'], true) || $memoryKey === '') {
-                    continue;
-                }
-
-                $memory = Memory::query()
-                    ->whereBelongsTo($character)
-                    ->where('memory_key', $memoryKey)
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($action === 'deactivate') {
-                    if (! $memory || $memory->archived_at !== null) {
-                        continue;
-                    }
-
-                    $before = $memory->toArray();
-                    $memory->update(['archived_at' => now()]);
-                    $this->recordChange($memory, $character, $conversation, $sourceMessage, 'deactivate', $change, $before);
-                    $applied++;
-
-                    continue;
-                }
-
-                $content = trim((string) Arr::get($change, 'content'));
-
-                if ($content === '') {
-                    continue;
-                }
-
-                $before = $memory?->toArray();
-                $attributes = [
-                    'category' => Str::limit(Str::slug((string) Arr::get($change, 'category', 'general'), '_'), 80, ''),
-                    'content' => Str::limit($content, 1000, ''),
-                    'importance' => min(5, max(1, (int) Arr::get($change, 'importance', 3))),
-                    'confidence' => min(1, max(0, (float) Arr::get($change, 'confidence', 0.8))),
-                    'source_conversation_id' => $conversation->id,
-                    'source_message_id' => $sourceMessage?->id,
-                    'last_reinforced_at' => now(),
-                    'archived_at' => null,
-                ];
-
-                if ($memory) {
-                    $memory->update($attributes);
-                    $auditAction = 'update';
-                } else {
-                    $memory = $character->memories()->create(array_merge(
-                        ['memory_key' => $memoryKey],
-                        $attributes,
-                    ));
-                    $auditAction = 'create';
-                }
-
-                $this->recordChange($memory, $character, $conversation, $sourceMessage, $auditAction, $change, $before);
-                $applied++;
-            }
-
-            return $applied;
-        });
-    }
-
-    /**
-     * @param  array<string, mixed>  $change
-     * @param  array<string, mixed>|null  $before
-     */
-    private function recordChange(
-        Memory $memory,
-        Character $character,
-        Conversation $conversation,
-        ?Message $sourceMessage,
-        string $action,
-        array $change,
-        ?array $before,
-    ): void {
-        MemoryChange::query()->create([
-            'memory_id' => $memory->id,
-            'character_id' => $character->id,
-            'source_conversation_id' => $conversation->id,
-            'source_message_id' => $sourceMessage?->id,
-            'action' => $action,
-            'reason' => Str::limit((string) Arr::get($change, 'reason'), 1000, ''),
-            'before' => $before,
-            'after' => $memory->fresh()?->toArray(),
-        ]);
     }
 }

@@ -6,10 +6,13 @@ use App\ConversationStatus;
 use App\Integrations\CreatesExternalActionProposals;
 use App\Integrations\IntegrationContextRegistry;
 use App\Integrations\IntegrationRouter;
+use App\Jobs\ConsolidateConversationMemory;
 use App\Models\Conversation;
 use App\Models\ExternalActionProposal;
+use App\Models\Memory;
+use App\Models\MemoryChange;
 use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
 
@@ -25,7 +28,7 @@ class ConversationChatService
     ) {}
 
     /**
-     * @return array{reply: string, raw: array<string, mixed>|null, memory_changes: int|null, memory_error: string|null, calendar_error: string|null, integration_errors: array<string, string>, proposal: array<string, mixed>|null, proposals: array<int, array<string, mixed>>}
+     * @return array{reply: string, conversation_title: string|null, calendar_error: string|null, integration_errors: array<string, string>, proposal: array<string, mixed>|null, proposals: array<int, array<string, mixed>>}
      */
     public function send(Conversation $conversation, string $content): array
     {
@@ -39,7 +42,6 @@ class ConversationChatService
         ]);
 
         $conversation->update([
-            'title' => $conversation->title ?: Str::limit($content, 60),
             'last_message_at' => now(),
         ]);
 
@@ -84,24 +86,15 @@ class ConversationChatService
             }
         }
 
-        $memoryChanges = null;
-        $memoryError = null;
-
-        if ($conversation->character->is_global) {
-            try {
-                $result = $this->memoryConsolidator->consolidate($conversation);
-                $memoryChanges = $result['changes'];
-            } catch (Throwable $exception) {
-                report($exception);
-                $memoryError = 'La risposta è salva, ma l’aggiornamento automatico delle memorie non è riuscito.';
-            }
+        try {
+            ConsolidateConversationMemory::dispatch($conversation->id);
+        } catch (Throwable $exception) {
+            report($exception);
         }
 
         return [
             'reply' => $reply,
-            'raw' => $raw,
-            'memory_changes' => $memoryChanges,
-            'memory_error' => $memoryError,
+            'conversation_title' => $conversation->fresh()->title,
             'calendar_error' => $integrations
                 ->first(fn ($integration) => $integration->service->value === 'google_calendar')
                 ?->error,
@@ -117,7 +110,7 @@ class ConversationChatService
     }
 
     /**
-     * @return array{summary: string|null, changes: int}
+     * @return array{summary: string|null, title: string|null, changes: int}
      */
     public function close(Conversation $conversation): array
     {
@@ -125,15 +118,90 @@ class ConversationChatService
             throw new RuntimeException('Questa conversazione è già chiusa.');
         }
 
-        $result = $this->memoryConsolidator->consolidate($conversation);
+        $result = $this->memoryConsolidator->consolidate($conversation, fullTranscript: true);
 
-        $conversation->update([
-            'status' => ConversationStatus::Closed,
-            'summary' => $result['summary'],
-            'closed_at' => now(),
-        ]);
+        DB::transaction(function () use ($conversation, $result): void {
+            $conversation->update([
+                'status' => ConversationStatus::Closed,
+                'summary' => $result['summary'],
+                'context_summary' => $result['summary'],
+                'memory_consolidated_through_message_id' => null,
+                'closed_at' => now(),
+            ]);
+            $conversation->messages()->delete();
+        });
 
         return $result;
+    }
+
+    public function discard(Conversation $conversation): void
+    {
+        DB::transaction(function () use ($conversation): void {
+            if ($conversation->isActive()) {
+                $this->revertConversationMemories($conversation);
+            }
+
+            $conversation->delete();
+        });
+    }
+
+    private function revertConversationMemories(Conversation $conversation): void
+    {
+        $changes = MemoryChange::query()
+            ->where('source_conversation_id', $conversation->id)
+            ->orderBy('id')
+            ->get()
+            ->groupBy('memory_id');
+
+        foreach ($changes as $memoryId => $conversationChanges) {
+            $firstChange = $conversationChanges->first();
+
+            if ($firstChange === null) {
+                continue;
+            }
+
+            $laterForeignChange = MemoryChange::query()
+                ->where('memory_id', $memoryId)
+                ->where('id', '>', $firstChange->id)
+                ->where(function ($query) use ($conversation): void {
+                    $query->whereNull('source_conversation_id')
+                        ->orWhere('source_conversation_id', '!=', $conversation->id);
+                })
+                ->exists();
+
+            if ($laterForeignChange) {
+                continue;
+            }
+
+            $memory = Memory::query()->find($memoryId);
+
+            if (! $memory) {
+                continue;
+            }
+
+            if ($firstChange->before === null) {
+                $memory->delete();
+
+                continue;
+            }
+
+            $before = $firstChange->before;
+            $memory->update([
+                'category' => $before['category'] ?? $memory->category,
+                'memory_key' => $before['memory_key'] ?? $memory->memory_key,
+                'content' => $before['content'] ?? $memory->content,
+                'importance' => $before['importance'] ?? $memory->importance,
+                'confidence' => $before['confidence'] ?? $memory->confidence,
+                'source_conversation_id' => $before['source_conversation_id'] ?? null,
+                'source_message_id' => $before['source_message_id'] ?? null,
+                'last_reinforced_at' => $before['last_reinforced_at'] ?? $memory->last_reinforced_at,
+                'archived_at' => $before['archived_at'] ?? null,
+            ]);
+        }
+
+        MemoryChange::query()
+            ->where('source_conversation_id', $conversation->id)
+            ->delete();
     }
 
     /**

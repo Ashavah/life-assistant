@@ -2,17 +2,52 @@
 
 use App\CharacterSlug;
 use App\ConversationStatus;
+use App\Jobs\ConsolidateConversationMemory;
 use App\Models\Character;
 use App\Models\Conversation;
 use App\Models\Memory;
+use App\Models\MemoryChange;
 use App\Models\Message;
 use App\Models\User;
 use Illuminate\Foundation\Testing\LazilyRefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 uses(TestCase::class, LazilyRefreshDatabase::class);
+
+/**
+ * @param  array{summary: ?string, changes: array<int, mixed>}  $memory
+ */
+function fakeChatAndMemory(string $reply, array $memory = ['summary' => 'Riassunto della chat.', 'changes' => []]): void
+{
+    $memory['title'] ??= 'Titolo generato';
+
+    Http::fake(function (Request $request) use ($reply, $memory) {
+        if (isset($request->data()['response_format'])) {
+            return Http::response([
+                'choices' => [[
+                    'message' => [
+                        'role' => 'assistant',
+                        'content' => json_encode($memory, JSON_THROW_ON_ERROR),
+                    ],
+                ]],
+            ]);
+        }
+
+        return Http::response([
+            'model' => 'deepseek-chat',
+            'choices' => [[
+                'message' => [
+                    'role' => 'assistant',
+                    'content' => $reply,
+                ],
+            ]],
+            'usage' => ['total_tokens' => 42],
+        ]);
+    });
+}
 
 beforeEach(function () {
     $this->actingAs(User::factory()->create());
@@ -21,7 +56,6 @@ beforeEach(function () {
         'ai.api_key' => 'test-key',
         'ai.url' => 'https://api.deepseek.com/v1/chat/completions',
         'ai.model' => 'deepseek-chat',
-        'ai.debug' => true,
     ]);
 });
 
@@ -39,18 +73,7 @@ test('crea più conversazioni indipendenti per lo stesso personaggio', function 
 
 test('invia il contesto isolato e salva entrambi i messaggi', function () {
     Http::preventStrayRequests();
-    Http::fake([
-        'https://api.deepseek.com/v1/chat/completions' => Http::response([
-            'model' => 'deepseek-chat',
-            'choices' => [[
-                'message' => [
-                    'role' => 'assistant',
-                    'content' => 'Ti consiglio di riposare.',
-                ],
-            ]],
-            'usage' => ['total_tokens' => 42],
-        ]),
-    ]);
+    fakeChatAndMemory('Ti consiglio di riposare.');
     $doctor = Character::factory()->create([
         'slug' => CharacterSlug::Doctor,
         'system_prompt' => 'PROMPT MEDICO ISOLATO',
@@ -66,7 +89,7 @@ test('invia il contesto isolato e salva entrambi i messaggi', function () {
     ])
         ->assertOk()
         ->assertJsonPath('reply', 'Ti consiglio di riposare.')
-        ->assertJsonPath('raw.status', 200);
+        ->assertJsonPath('conversation_title', 'Titolo generato');
 
     $this->assertDatabaseHas('messages', [
         'conversation_id' => $conversation->id,
@@ -78,7 +101,7 @@ test('invia il contesto isolato e salva entrambi i messaggi', function () {
         'role' => 'assistant',
         'content' => 'Ti consiglio di riposare.',
     ]);
-    expect($conversation->fresh()->title)->toBe('Sono stanco');
+    expect($conversation->fresh()->title)->toBe('Titolo generato');
 
     Http::assertSent(function (Request $request): bool {
         $payload = $request->data();
@@ -92,16 +115,7 @@ test('invia il contesto isolato e salva entrambi i messaggi', function () {
 
 test('invia lo storico in ordine cronologico con il nuovo messaggio per ultimo', function () {
     Http::preventStrayRequests();
-    Http::fake([
-        'https://api.deepseek.com/v1/chat/completions' => Http::response([
-            'choices' => [[
-                'message' => [
-                    'role' => 'assistant',
-                    'content' => 'Bevi acqua tiepida.',
-                ],
-            ]],
-        ]),
-    ]);
+    fakeChatAndMemory('Bevi acqua tiepida.');
     $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
     $conversation = Conversation::factory()->for($doctor)->create();
     Message::factory()->for($conversation)->create(['content' => 'chi sei?']);
@@ -123,16 +137,7 @@ test('invia lo storico in ordine cronologico con il nuovo messaggio per ultimo',
 
 test('mantiene i messaggi più recenti quando lo storico supera il limite', function () {
     Http::preventStrayRequests();
-    Http::fake([
-        'https://api.deepseek.com/v1/chat/completions' => Http::response([
-            'choices' => [[
-                'message' => [
-                    'role' => 'assistant',
-                    'content' => 'Ricevuto.',
-                ],
-            ]],
-        ]),
-    ]);
+    fakeChatAndMemory('Ricevuto.');
     config(['ai.max_history_messages' => 3]);
     $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
     $conversation = Conversation::factory()->for($doctor)->create();
@@ -202,10 +207,106 @@ test('chiude una chat specialista consolidando memoria e audit', function () {
         'action' => 'create',
     ]);
     expect($conversation->fresh()->status)->toBe(ConversationStatus::Closed)
-        ->and($conversation->fresh()->summary)->toBe('L’utente segnala emicrania ricorrente.');
+        ->and($conversation->fresh()->summary)->toBe('L’utente segnala emicrania ricorrente.')
+        ->and($conversation->fresh()->context_summary)->toBe('L’utente segnala emicrania ricorrente.')
+        ->and($conversation->fresh()->memory_consolidated_through_message_id)->toBeNull()
+        ->and($conversation->messages()->count())->toBe(0);
+
+    $this->get(route('home', [
+        'character' => $doctor->slug,
+        'conversation' => $conversation->id,
+    ]))
+        ->assertOk()
+        ->assertSee('L’utente segnala emicrania ricorrente.')
+        ->assertDontSee('Ogni lunedì ho emicrania');
 });
 
-test('la chat globale distribuisce automaticamente memorie senza contaminazione', function () {
+test('uno specialista salva memoria a ogni messaggio e ignora gli altri personaggi', function () {
+    Http::preventStrayRequests();
+    fakeChatAndMemory('Evita la penicillina.', [
+        'summary' => 'Allergia confermata.',
+        'changes' => [
+            [
+                'character' => 'doctor',
+                'action' => 'upsert',
+                'key' => 'allergia_penicillina',
+                'category' => 'allergie',
+                'content' => 'Allergia alla penicillina',
+                'importance' => 5,
+                'confidence' => 1,
+                'reason' => 'Fatto medico durevole',
+            ],
+            [
+                'character' => 'manager',
+                'action' => 'upsert',
+                'key' => 'non_dovrebbe_entrare',
+                'category' => 'lavoro',
+                'content' => 'Questo fatto appartiene al manager',
+                'importance' => 5,
+                'confidence' => 1,
+                'reason' => 'Tentativo di unione non autorizzata',
+            ],
+        ],
+    ]);
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    Character::factory()->create(['slug' => CharacterSlug::Manager]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'Sono allergico alla penicillina',
+    ])->assertOk();
+
+    $this->assertDatabaseHas('memories', [
+        'character_id' => $doctor->id,
+        'memory_key' => 'allergia_penicillina',
+    ]);
+    expect(Memory::query()->where('memory_key', 'non_dovrebbe_entrare')->count())->toBe(0)
+        ->and($conversation->fresh()->context_summary)->toBe('Allergia confermata.');
+});
+
+test('il consolidamento incrementale assorbe ogni messaggio una volta sola', function () {
+    Http::preventStrayRequests();
+    $structuredPayloads = [];
+    Http::fake(function (Request $request) use (&$structuredPayloads) {
+        if (isset($request->data()['response_format'])) {
+            $structuredPayloads[] = $request->data()['messages'][1]['content'];
+
+            return Http::response([
+                'choices' => [[
+                    'message' => [
+                        'content' => json_encode([
+                            'summary' => 'Riassunto cumulativo.',
+                            'changes' => [],
+                        ], JSON_THROW_ON_ERROR),
+                    ],
+                ]],
+            ]);
+        }
+
+        return Http::response([
+            'choices' => [['message' => ['content' => 'Ricevuto.']]],
+        ]);
+    });
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'Primo fatto medico',
+    ])->assertOk();
+    $firstCursor = $conversation->fresh()->memory_consolidated_through_message_id;
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'Seconda precisazione medica',
+    ])->assertOk();
+
+    expect($structuredPayloads)->toHaveCount(2)
+        ->and($structuredPayloads[0])->toContain('Primo fatto medico')
+        ->and($structuredPayloads[1])->toContain('Seconda precisazione medica')
+        ->and($structuredPayloads[1])->not->toContain('Primo fatto medico')
+        ->and($conversation->fresh()->memory_consolidated_through_message_id)->toBeGreaterThan($firstCursor);
+});
+
+test('la chat globale unisce memorie sugli specialisti e può salvare la propria', function () {
     Http::preventStrayRequests();
     Http::fake(function (Request $request) {
         if (isset($request->data()['response_format'])) {
@@ -238,6 +339,16 @@ test('la chat globale distribuisce automaticamente memorie senza contaminazione'
                                 ],
                                 [
                                     'character' => 'global',
+                                    'action' => 'upsert',
+                                    'key' => 'settimana_impegnata',
+                                    'category' => 'sintesi',
+                                    'content' => 'Settimana con visita medica e scadenza di progetto',
+                                    'importance' => 3,
+                                    'confidence' => 0.9,
+                                    'reason' => 'Sintesi trasversale del globale',
+                                ],
+                                [
+                                    'character' => 'inesistente',
                                     'action' => 'upsert',
                                     'key' => 'contaminazione_non_consentita',
                                     'category' => 'general',
@@ -272,8 +383,7 @@ test('la chat globale distribuisce automaticamente memorie senza contaminazione'
         'message' => 'Martedì alle 10 ho una visita; venerdì consegno il progetto.',
     ])
         ->assertOk()
-        ->assertJsonPath('reply', 'Organizziamo entrambe le priorità.')
-        ->assertJsonPath('memory_changes', 2);
+        ->assertJsonPath('reply', 'Organizziamo entrambe le priorità.');
 
     $this->assertDatabaseHas('memories', [
         'character_id' => $secretary->id,
@@ -283,8 +393,12 @@ test('la chat globale distribuisce automaticamente memorie senza contaminazione'
         'character_id' => $manager->id,
         'memory_key' => 'consegna_progetto',
     ]);
+    $this->assertDatabaseHas('memories', [
+        'character_id' => $global->id,
+        'memory_key' => 'settimana_impegnata',
+    ]);
     expect(Memory::query()->whereBelongsTo($doctor)->count())->toBe(0)
-        ->and(Memory::query()->whereBelongsTo($global)->count())->toBe(0);
+        ->and($conversation->fresh()->context_summary)->toBe('Visita medica martedì e consegna progetto venerdì.');
 });
 
 test('non consente messaggi in una conversazione chiusa', function () {
@@ -369,10 +483,11 @@ test('mantiene aperta la conversazione se il consolidamento non restituisce json
         ->assertJsonPath('message', 'La risposta IA per la memoria non è JSON valido.');
 
     expect($conversation->fresh()->status)->toBe(ConversationStatus::Active)
+        ->and($conversation->messages()->count())->toBe(1)
         ->and(Memory::query()->count())->toBe(0);
 });
 
-test('espone in debug il rifiuto del provider senza creare una risposta assistant', function () {
+test('rifiuta il provider senza creare una risposta assistant', function () {
     Http::preventStrayRequests();
     Http::fake([
         'https://api.deepseek.com/v1/chat/completions' => Http::response([
@@ -382,15 +497,138 @@ test('espone in debug il rifiuto del provider senza creare una risposta assistan
     $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
     $conversation = Conversation::factory()->for($doctor)->create();
 
-    $this->postJson(route('conversations.messages.store', $conversation), [
+    $response = $this->postJson(route('conversations.messages.store', $conversation), [
         'message' => 'Ciao',
-    ])
+    ]);
+
+    $response
         ->assertStatus(502)
-        ->assertJsonPath('raw.status', 503)
-        ->assertJsonPath('raw.body.error.message', 'modello non disponibile');
+        ->assertJsonPath('message', 'L’endpoint IA ha rifiutato la richiesta. Controlla chiave, modello e URL.');
+
+    expect($response->json())->not->toHaveKey('raw');
 
     expect($conversation->messages()->where('role', 'user')->count())->toBe(1)
         ->and($conversation->messages()->where('role', 'assistant')->count())->toBe(0);
+});
+
+test('accoda il consolidamento invece di eseguirlo durante la richiesta', function () {
+    Queue::fake();
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://api.deepseek.com/v1/chat/completions' => Http::response([
+            'choices' => [['message' => ['content' => 'Ti consiglio di riposare.']]],
+        ]),
+    ]);
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'Sono stanco',
+    ])->assertOk();
+
+    Http::assertSentCount(1);
+    expect(Memory::query()->count())->toBe(0);
+    Queue::assertPushed(
+        ConsolidateConversationMemory::class,
+        fn (ConsolidateConversationMemory $job): bool => $job->conversationId === $conversation->id,
+    );
+});
+
+test('il consolidamento accodato non tocca una conversazione già chiusa', function () {
+    Http::preventStrayRequests();
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->closed()->create();
+    Message::factory()->for($conversation)->create();
+
+    app()->call([new ConsolidateConversationMemory($conversation->id), 'handle']);
+
+    expect(Memory::query()->count())->toBe(0);
+});
+
+test('elimina una chat attiva senza chiamare l’IA e annulla le memorie di quella conversazione', function () {
+    Http::preventStrayRequests();
+    Queue::fake();
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+    $otherConversation = Conversation::factory()->for($doctor)->create();
+    Message::factory()->for($conversation)->create(['content' => 'Segreto da non conservare']);
+
+    $created = Memory::factory()->for($doctor)->create([
+        'memory_key' => 'fatto_da_questa_chat',
+        'content' => 'Creato da questa chat',
+        'source_conversation_id' => $conversation->id,
+    ]);
+    MemoryChange::factory()->for($created)->for($doctor)->create([
+        'source_conversation_id' => $conversation->id,
+        'action' => 'create',
+        'before' => null,
+    ]);
+
+    $kept = Memory::factory()->for($doctor)->create([
+        'memory_key' => 'allergia_preesistente',
+        'content' => 'Allergia lieve alle arachidi',
+        'source_conversation_id' => $otherConversation->id,
+    ]);
+    MemoryChange::factory()->for($kept)->for($doctor)->create([
+        'source_conversation_id' => $conversation->id,
+        'action' => 'update',
+        'before' => $kept->only([
+            'category',
+            'memory_key',
+            'content',
+            'importance',
+            'confidence',
+            'source_conversation_id',
+            'source_message_id',
+            'archived_at',
+        ]),
+    ]);
+    $kept->update([
+        'content' => 'Allergia severa alle arachidi',
+        'source_conversation_id' => $conversation->id,
+    ]);
+
+    $this->deleteJson(route('conversations.destroy', $conversation))
+        ->assertOk()
+        ->assertJsonPath('message', 'Conversazione eliminata. Nessuna memoria è stata salvata da questa chat.');
+
+    Http::assertNothingSent();
+    Queue::assertNothingPushed();
+    $this->assertModelMissing($conversation);
+    $this->assertModelMissing($created);
+    expect(Message::query()->where('conversation_id', $conversation->id)->count())->toBe(0)
+        ->and($kept->fresh()->content)->toBe('Allergia lieve alle arachidi')
+        ->and($kept->fresh()->source_conversation_id)->toBe($otherConversation->id);
+});
+
+test('l’eliminazione di una chat chiusa non tocca le memorie già salvate', function () {
+    Http::preventStrayRequests();
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->closed()->create();
+    $memory = Memory::factory()->for($doctor)->create([
+        'memory_key' => 'emicrania_ricorrente',
+        'content' => 'Emicrania il lunedì',
+        'source_conversation_id' => $conversation->id,
+    ]);
+
+    $this->deleteJson(route('conversations.destroy', $conversation))
+        ->assertOk();
+
+    $this->assertModelMissing($conversation);
+    expect($memory->fresh()->content)->toBe('Emicrania il lunedì')
+        ->and($memory->fresh()->source_conversation_id)->toBeNull();
+});
+
+test('un altro utente non può eliminare una conversazione', function () {
+    $owner = User::factory()->create();
+    $doctor = Character::factory()->for($owner)->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+
+    $this->actingAs(User::factory()->create())
+        ->deleteJson(route('conversations.destroy', $conversation))
+        ->assertForbidden();
+
+    $this->assertModelExists($conversation);
 });
 
 test('valida il contenuto del messaggio', function () {

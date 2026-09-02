@@ -42,3 +42,57 @@ test('fallisce solo dopo aver esaurito i tentativi', function () {
 
     Http::assertSentCount(3);
 });
+
+test('il dialogo usa il modello premium quando è configurato', function () {
+    config([
+        'ai.dialogue.api_key' => 'premium-key',
+        'ai.dialogue.url' => 'https://api.openai.com/v1/chat/completions',
+        'ai.dialogue.model' => 'gpt-5.4-mini',
+        'ai.dialogue.timeout' => 120,
+        'ai.dialogue.temperature' => 0.7,
+    ]);
+    Http::fake([
+        'https://api.openai.com/v1/chat/completions' => Http::response([
+            'choices' => [['message' => ['content' => 'Ciao.']]],
+        ]),
+        'https://api.deepseek.com/v1/chat/completions' => Http::response([
+            'choices' => [['message' => ['content' => '{"intent":"list"}']]],
+        ]),
+    ]);
+
+    $client = new AiChatClient;
+
+    expect($client->complete([
+        ['role' => 'user', 'content' => 'Ciao'],
+    ]))->toBe('Ciao.');
+    expect($client->completeStructured([
+        ['role' => 'user', 'content' => 'Cosa ho domani?'],
+    ], 'Rispondi in JSON.'))->toBe(['intent' => 'list']);
+
+    Http::assertSent(fn ($request): bool => $request->url() === 'https://api.openai.com/v1/chat/completions'
+        && $request->data()['model'] === 'gpt-5.4-mini'
+        && $request->hasHeader('Authorization', 'Bearer premium-key'));
+    Http::assertSent(fn ($request): bool => $request->url() === 'https://api.deepseek.com/v1/chat/completions'
+        && $request->data()['model'] === 'deepseek-chat'
+        && $request->hasHeader('Authorization', 'Bearer test-key')
+        && ($request->data()['response_format']['type'] ?? null) === 'json_object');
+});
+
+test('senza premium il dialogo ricade sul modello strutturato', function () {
+    config([
+        'ai.dialogue.api_key' => '',
+        'ai.dialogue.url' => '',
+    ]);
+    Http::fake([
+        'https://api.deepseek.com/v1/chat/completions' => Http::response([
+            'choices' => [['message' => ['content' => 'Ciao da DeepSeek.']]],
+        ]),
+    ]);
+
+    expect((new AiChatClient)->complete([
+        ['role' => 'user', 'content' => 'Ciao'],
+    ]))->toBe('Ciao da DeepSeek.');
+
+    Http::assertSent(fn ($request): bool => $request->url() === 'https://api.deepseek.com/v1/chat/completions'
+        && $request->data()['model'] === 'deepseek-chat');
+});

@@ -50,4 +50,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(Memory::class);
     }
+
+    public function knowledgeIngestions(): HasMany
+    {
+        return $this->hasMany(KnowledgeIngestion::class);
+    }
 }

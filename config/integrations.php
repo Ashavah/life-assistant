@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'account_providers' => ['google'],
+    'account_providers' => ['google', 'spotify'],
     'max_services_per_turn' => 2,
     'max_list_items' => 15,
     'max_content_characters' => 12000,

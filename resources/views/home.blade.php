@@ -54,10 +54,6 @@
             .composer textarea { min-height: 2.8rem; max-height: 10rem; flex: 1; resize: vertical; border: 0; outline: 0; padding: .6rem; color: #1c1917; }
             .send { border: 0; border-radius: .75rem; background: #1c1917; padding: .65rem .9rem; color: #fff; font-size: .82rem; font-weight: 600; }
             .send:disabled, button:disabled { cursor: not-allowed; opacity: .45; }
-            .raw-panel { margin-top: .65rem; border: 1px solid #e7e5e4; border-radius: .65rem; background: #fff; padding: .5rem .7rem; }
-            .raw-panel[hidden] { display: none; }
-            .raw-panel summary { cursor: pointer; color: #78716c; font-size: .75rem; }
-            .raw-panel pre { max-height: 15rem; overflow: auto; margin: .5rem 0 0; font-size: .72rem; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; }
             .proposal { align-self: flex-start; width: min(100%, 34rem); border: 1px solid #bfdbfe; border-radius: .85rem; background: #eff6ff; padding: .8rem; }
             .proposal h4 { margin: 0 0 .35rem; font-size: .9rem; }
             .proposal p { margin: .2rem 0; color: #475569; font-size: .78rem; line-height: 1.45; }
@@ -78,6 +74,18 @@
             .integration-card h4 { margin: 0 0 .35rem; }
             .integration-card p { color: #78716c; font-size: .8rem; line-height: 1.45; }
             .integration-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+            .knowledge-card { margin-top: .75rem; border: 1px solid #e7e5e4; border-radius: .75rem; background: #fafaf9; padding: .75rem; }
+            .knowledge-card-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+            .knowledge-card-header h5 { overflow: hidden; margin: 0; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+            .knowledge-status { border-radius: 999px; background: #e7e5e4; padding: .18rem .45rem; color: #57534e; font-size: .65rem; font-weight: 700; text-transform: uppercase; }
+            .knowledge-group { display: grid; gap: .45rem; margin-top: .75rem; }
+            .knowledge-group h6 { margin: 0; color: #57534e; font-size: .72rem; text-transform: uppercase; }
+            .knowledge-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .55rem; border: 1px solid #e7e5e4; border-radius: .6rem; background: #fff; padding: .6rem; }
+            .knowledge-item input { width: auto; margin-top: .2rem; }
+            .knowledge-item p { margin: 0; color: #292524; font-size: .78rem; line-height: 1.4; }
+            .knowledge-meta { display: block; margin-top: .25rem; color: #78716c; font-size: .68rem; }
+            .knowledge-actions { display: flex; gap: .45rem; margin-top: .75rem; }
+            .knowledge-empty { margin: .6rem 0 0; color: #78716c; font-size: .76rem; }
             .no-conversation { margin: auto; text-align: center; }
             .no-conversation h3 { margin: 0 0 .35rem; }
             .no-conversation p { margin: 0 0 1rem; color: #78716c; font-size: .86rem; }
@@ -128,6 +136,7 @@
                                             href="{{ route('home', ['character' => $character->slug, 'conversation' => $conversation->id]) }}"
                                             class="conversation-link {{ $selectedConversation?->is($conversation) ? 'active' : '' }} {{ $conversation->isActive() ? '' : 'closed' }}"
                                             title="{{ $conversation->title ?? 'Nuova conversazione' }}"
+                                            data-current-conversation-title="{{ $selectedConversation?->is($conversation) ? 'true' : 'false' }}"
                                         >
                                             {{ $conversation->isActive() ? '●' : '○' }}
                                             {{ $conversation->title ?? 'Nuova conversazione' }}
@@ -168,7 +177,7 @@
                     <header class="topbar">
                         <div class="identity">
                             <h2>{{ $selectedCharacter->name }}</h2>
-                            <p>{{ $selectedConversation?->title ?? $selectedCharacter->description }}</p>
+                            <p id="conversation-title">{{ $selectedConversation?->title ?? $selectedCharacter->description }}</p>
                         </div>
                         <div class="actions">
                             <span class="status-badge">{{ auth()->user()->name }}</span>
@@ -179,6 +188,14 @@
                                 @if ($selectedConversation->isActive())
                                     <button type="button" class="secondary" id="close-chat">Chiudi e salva memoria</button>
                                 @endif
+                                <button
+                                    type="button"
+                                    class="secondary danger"
+                                    id="discard-chat"
+                                    data-discard-active="{{ $selectedConversation->isActive() ? '1' : '0' }}"
+                                >
+                                    {{ $selectedConversation->isActive() ? 'Chiudi e elimina' : 'Elimina chat' }}
+                                </button>
                             @endif
                             <button type="button" class="secondary" id="open-settings">Personaggio</button>
                             <button type="button" class="secondary" id="open-account-settings">Il mio account</button>
@@ -199,47 +216,51 @@
                     <div class="content">
                         @if ($selectedCharacter->is_global)
                             <div class="global-note">
-                                Questa chat legge le memorie di tutti gli specialisti e distribuisce automaticamente i nuovi fatti soltanto al personaggio pertinente.
+                                Questa chat ha una memoria propria e vede le memorie di tutti gli specialisti. Solo il Globale può unire o distribuire i fatti tra di loro.
                             </div>
                         @endif
 
                         @if ($selectedConversation)
                             <div class="messages" id="messages">
-                                @forelse ($selectedConversation->messages as $message)
-                                    <article class="message {{ $message->role }}">{{ $message->content }}</article>
-                                    @foreach ($selectedConversation->externalActionProposals->where('source_message_id', $message->id) as $proposal)
-                                        <section
-                                            class="proposal"
-                                            data-proposal
-                                            data-confirm-url="{{ route('external-actions.confirm', $proposal) }}"
-                                            data-reject-url="{{ route('external-actions.reject', $proposal) }}"
-                                        >
-                                            <span class="proposal-status">{{ $proposal->status->value }}</span>
-                                            <h4>{{ $proposal->type->title($proposal->payload) }}</h4>
-                                            @if (str_contains($proposal->type->value, 'calendar.') || str_contains($proposal->type->value, 'create_event'))
-                                                <p>{{ data_get($proposal->payload, 'start') }} → {{ data_get($proposal->payload, 'end') }}</p>
-                                                @if (data_get($proposal->payload, 'location'))
-                                                    <p>Luogo: {{ data_get($proposal->payload, 'location') }}</p>
+                                @if (! $selectedConversation->isActive() && filled($selectedConversation->summary))
+                                    <article class="message assistant">{{ $selectedConversation->summary }}</article>
+                                @else
+                                    @forelse ($selectedConversation->messages as $message)
+                                        <article class="message {{ $message->role }}">{{ $message->content }}</article>
+                                        @foreach ($selectedConversation->externalActionProposals->where('source_message_id', $message->id) as $proposal)
+                                            <section
+                                                class="proposal"
+                                                data-proposal
+                                                data-confirm-url="{{ route('external-actions.confirm', $proposal) }}"
+                                                data-reject-url="{{ route('external-actions.reject', $proposal) }}"
+                                            >
+                                                <span class="proposal-status">{{ $proposal->status->value }}</span>
+                                                <h4>{{ $proposal->type->title($proposal->payload) }}</h4>
+                                                @if (str_contains($proposal->type->value, 'calendar.') || str_contains($proposal->type->value, 'create_event'))
+                                                    <p>{{ data_get($proposal->payload, 'start') }} → {{ data_get($proposal->payload, 'end') }}</p>
+                                                    @if (data_get($proposal->payload, 'location'))
+                                                        <p>Luogo: {{ data_get($proposal->payload, 'location') }}</p>
+                                                    @endif
+                                                @elseif (str_contains($proposal->type->value, 'mail.'))
+                                                    <p>A: {{ implode(', ', data_get($proposal->payload, 'to', [])) }}</p>
+                                                    <p>{{ data_get($proposal->payload, 'body') }}</p>
+                                                @elseif (data_get($proposal->payload, 'content') || data_get($proposal->payload, 'text') || data_get($proposal->payload, 'body'))
+                                                    <p>{{ data_get($proposal->payload, 'content', data_get($proposal->payload, 'text', data_get($proposal->payload, 'body'))) }}</p>
                                                 @endif
-                                            @elseif (str_contains($proposal->type->value, 'mail.'))
-                                                <p>A: {{ implode(', ', data_get($proposal->payload, 'to', [])) }}</p>
-                                                <p>{{ data_get($proposal->payload, 'body') }}</p>
-                                            @elseif (data_get($proposal->payload, 'content') || data_get($proposal->payload, 'text') || data_get($proposal->payload, 'body'))
-                                                <p>{{ data_get($proposal->payload, 'content', data_get($proposal->payload, 'text', data_get($proposal->payload, 'body'))) }}</p>
-                                            @endif
-                                            @if (in_array($proposal->status->value, ['pending', 'failed'], true))
-                                                <div class="proposal-actions">
-                                                    <button type="button" class="primary" data-confirm-proposal>Conferma</button>
-                                                    <button type="button" class="secondary danger" data-reject-proposal>Rifiuta</button>
-                                                </div>
-                                            @elseif (data_get($proposal->result, 'html_link') || data_get($proposal->result, 'web_link'))
-                                                <p><a href="{{ data_get($proposal->result, 'html_link', data_get($proposal->result, 'web_link')) }}" target="_blank" rel="noopener">Apri su {{ $proposal->type->providerLabel() }}</a></p>
-                                            @endif
-                                        </section>
-                                    @endforeach
-                                @empty
-                                    <p class="empty" id="empty-state">Inizia questa conversazione con {{ $selectedCharacter->name }}.</p>
-                                @endforelse
+                                                @if (in_array($proposal->status->value, ['pending', 'failed'], true))
+                                                    <div class="proposal-actions">
+                                                        <button type="button" class="primary" data-confirm-proposal>Conferma</button>
+                                                        <button type="button" class="secondary danger" data-reject-proposal>Rifiuta</button>
+                                                    </div>
+                                                @elseif (data_get($proposal->result, 'html_link') || data_get($proposal->result, 'web_link'))
+                                                    <p><a href="{{ data_get($proposal->result, 'html_link', data_get($proposal->result, 'web_link')) }}" target="_blank" rel="noopener">Apri su {{ $proposal->type->providerLabel() }}</a></p>
+                                                @endif
+                                            </section>
+                                        @endforeach
+                                    @empty
+                                        <p class="empty" id="empty-state">Inizia questa conversazione con {{ $selectedCharacter->name }}.</p>
+                                    @endforelse
+                                @endif
                             </div>
 
                             <p class="feedback" id="feedback"></p>
@@ -250,13 +271,8 @@
                                     <button type="submit" class="send" id="send-button">Invia</button>
                                 </form>
                             @else
-                                <p class="empty">Questa conversazione è chiusa. La sua memoria è stata consolidata.</p>
+                                <p class="empty">Questa conversazione è chiusa. I messaggi sono stati sostituiti dal riepilogo consolidato.</p>
                             @endif
-
-                            <details class="raw-panel" id="raw-panel" hidden>
-                                <summary>Risposta cruda del provider</summary>
-                                <pre id="raw-output"></pre>
-                            </details>
                         @else
                             <div class="no-conversation">
                                 <h3>Nessuna chat aperta</h3>
@@ -298,6 +314,95 @@
                         <p class="feedback" id="settings-feedback"></p>
                         <button type="submit" class="primary" id="save-settings">Salva impostazioni</button>
                     </form>
+
+                    <section class="integration-card">
+                        <h4>Importa conoscenze</h4>
+                        <p>
+                            Incolla testo o carica TXT, Markdown, PDF, DOCX e immagini.
+                            Nulla entra nella memoria finché non confermi l’anteprima.
+                            @if ($selectedCharacter->is_global)
+                                Il Globale distribuirà i fatti solo agli specialisti pertinenti e creerà sintesi globali soltanto quando trasversali.
+                            @else
+                                {{ $selectedCharacter->name }} ignorerà i fatti estranei al proprio ambito.
+                            @endif
+                        </p>
+                        <form class="settings-form" id="knowledge-form" enctype="multipart/form-data">
+                            <label>Testo da assimilare
+                                <textarea name="text" rows="5" maxlength="{{ config('knowledge.max_text_characters') }}" placeholder="Incolla qui informazioni, note o contesto…"></textarea>
+                            </label>
+                            <label>File
+                                <input
+                                    type="file"
+                                    name="files[]"
+                                    multiple
+                                    accept=".txt,.md,.pdf,.docx,.jpg,.jpeg,.png,.webp"
+                                >
+                            </label>
+                            <p class="feedback" id="knowledge-feedback"></p>
+                            <button type="submit" class="primary">Analizza e prepara anteprima</button>
+                        </form>
+
+                        <div id="knowledge-list">
+                            @foreach ($knowledgeIngestions as $ingestion)
+                                <article
+                                    class="knowledge-card"
+                                    data-knowledge-ingestion
+                                    data-status="{{ $ingestion->status->value }}"
+                                    data-item-count="{{ $ingestion->item_count }}"
+                                    data-status-url="{{ route('knowledge-ingestions.show', $ingestion) }}"
+                                    data-confirm-url="{{ route('knowledge-ingestions.confirm', $ingestion) }}"
+                                    data-reject-url="{{ route('knowledge-ingestions.reject', $ingestion) }}"
+                                >
+                                    <div class="knowledge-card-header">
+                                        <h5>{{ $ingestion->original_filename ?? 'Testo incollato' }}</h5>
+                                        <span class="knowledge-status">{{ str_replace('_', ' ', $ingestion->status->value) }}</span>
+                                    </div>
+
+                                    @if ($ingestion->status->value === 'awaiting_review')
+                                        @forelse ($ingestion->items->groupBy('character_id') as $items)
+                                            @php($target = $items->first()->character)
+                                            <section class="knowledge-group">
+                                                <h6>
+                                                    {{ $target->is_global ? 'Sintesi globali derivate' : $target->name }}
+                                                </h6>
+                                                @foreach ($items as $item)
+                                                    <label class="knowledge-item">
+                                                        <input type="checkbox" value="{{ $item->id }}" data-knowledge-item @checked($item->selected)>
+                                                        <span>
+                                                            <p>{{ $item->content }}</p>
+                                                            <span class="knowledge-meta">
+                                                                {{ $item->action }} · {{ $item->category }} · importanza {{ $item->importance }}/5 · confidenza {{ round($item->confidence * 100) }}%
+                                                                @if ($item->source_reference)
+                                                                    · {{ $item->source_reference }}
+                                                                @endif
+                                                            </span>
+                                                        </span>
+                                                    </label>
+                                                @endforeach
+                                            </section>
+                                        @empty
+                                            <p class="knowledge-empty">Nessun fatto pertinente trovato. Puoi chiudere o rifiutare l’importazione.</p>
+                                        @endforelse
+
+                                        <div class="knowledge-actions">
+                                            <button type="button" class="primary" data-confirm-knowledge>Conferma selezionati</button>
+                                            <button type="button" class="secondary danger" data-reject-knowledge>Rifiuta tutto</button>
+                                        </div>
+                                    @elseif ($ingestion->status->value === 'failed')
+                                        <p class="knowledge-empty">{{ $ingestion->error_message ?? 'Elaborazione non riuscita.' }}</p>
+                                        <div class="knowledge-actions">
+                                            <button type="button" class="secondary danger" data-reject-knowledge>Elimina dati temporanei</button>
+                                        </div>
+                                    @else
+                                        <p class="knowledge-empty">Elaborazione asincrona in corso…</p>
+                                        <div class="knowledge-actions">
+                                            <button type="button" class="secondary danger" data-reject-knowledge>Annulla</button>
+                                        </div>
+                                    @endif
+                                </article>
+                            @endforeach
+                        </div>
+                    </section>
 
                     @unless ($selectedCharacter->is_global)
                         <section class="integration-card">
@@ -411,11 +516,14 @@
             const input = document.getElementById('message');
             const sendButton = document.getElementById('send-button');
             const closeButton = document.getElementById('close-chat');
-            const rawPanel = document.getElementById('raw-panel');
-            const rawOutput = document.getElementById('raw-output');
+            const discardButton = document.getElementById('discard-chat');
+            const conversationTitle = document.getElementById('conversation-title');
+            const currentConversationTitleLink = document.querySelector('[data-current-conversation-title="true"]');
             const settingsBackdrop = document.getElementById('settings-backdrop');
             const settingsForm = document.getElementById('settings-form');
             const settingsFeedback = document.getElementById('settings-feedback');
+            const knowledgeForm = document.getElementById('knowledge-form');
+            const knowledgeFeedback = document.getElementById('knowledge-feedback');
             const accountSettingsBackdrop = document.getElementById('account-settings-backdrop');
             const accountProfileForm = document.getElementById('account-profile-form');
             const accountProfileFeedback = document.getElementById('account-profile-feedback');
@@ -425,9 +533,11 @@
             const createCharacterFeedback = document.getElementById('create-character-feedback');
             const messageUrl = {{ Js::from($selectedConversation ? route('conversations.messages.store', $selectedConversation) : null) }};
             const closeUrl = {{ Js::from($selectedConversation ? route('conversations.closed.store', $selectedConversation) : null) }};
+            const discardUrl = {{ Js::from($selectedConversation ? route('conversations.destroy', $selectedConversation) : null) }};
             const conversationStoreUrl = {{ Js::from(route('conversations.store')) }};
             const characterStoreUrl = {{ Js::from(route('characters.store')) }};
             const characterUpdateUrl = {{ Js::from($selectedCharacter ? route('characters.update', $selectedCharacter) : null) }};
+            const knowledgeStoreUrl = {{ Js::from($selectedCharacter ? route('knowledge-ingestions.store', $selectedCharacter) : null) }};
             const accountProfileUrl = {{ Js::from(route('account.profile.update')) }};
             const accountPasswordUrl = {{ Js::from(route('account.password.update')) }};
 
@@ -448,17 +558,7 @@
                 try {
                     data = JSON.parse(rawBody);
                 } catch {
-                    if (rawPanel && rawOutput) {
-                        rawOutput.textContent = rawBody;
-                        rawPanel.hidden = false;
-                        rawPanel.open = true;
-                    }
                     throw new Error(`Il server ha risposto con testo non JSON (status ${response.status}).`);
-                }
-
-                if (data.raw !== undefined && rawPanel && rawOutput) {
-                    rawOutput.textContent = JSON.stringify(data.raw, null, 2);
-                    rawPanel.hidden = false;
                 }
 
                 if (!response.ok) {
@@ -466,6 +566,12 @@
                 }
 
                 return data;
+            };
+
+            const reloadWithCharacterSettings = () => {
+                const url = new URL(window.location.href);
+                url.searchParams.set('settings', '1');
+                window.location.href = url.toString();
             };
 
             const setFeedback = (text, isError = false) => {
@@ -601,6 +707,14 @@
 
                     try {
                         const data = await request(messageUrl, { message: content });
+                        if (data.conversation_title) {
+                            conversationTitle.textContent = data.conversation_title;
+
+                            if (currentConversationTitleLink) {
+                                currentConversationTitleLink.textContent = `● ${data.conversation_title}`;
+                                currentConversationTitleLink.title = data.conversation_title;
+                            }
+                        }
                         const assistantMessage = document.createElement('article');
                         assistantMessage.className = 'message assistant';
                         assistantMessage.textContent = data.reply;
@@ -608,14 +722,7 @@
                         (data.proposals || (data.proposal ? [data.proposal] : []))
                             .forEach((proposal) => messages.appendChild(renderProposal(proposal)));
                         const integrationError = Object.values(data.integration_errors || {})[0];
-                        setFeedback(
-                            integrationError || data.memory_error
-                                ? integrationError || data.memory_error
-                                : data.memory_changes === null
-                                    ? ''
-                                    : `${data.memory_changes} memorie aggiornate.`,
-                            Boolean(integrationError || data.memory_error),
-                        );
+                        setFeedback(integrationError || '', Boolean(integrationError));
                         messages.scrollTop = messages.scrollHeight;
                     } catch (error) {
                         setFeedback(error.message, true);
@@ -685,6 +792,118 @@
                 }
             });
 
+            const bindKnowledgeCard = (card) => {
+                const confirmButton = card.querySelector('[data-confirm-knowledge]');
+                const rejectButton = card.querySelector('[data-reject-knowledge]');
+
+                confirmButton?.addEventListener('click', async () => {
+                    confirmButton.disabled = true;
+                    if (rejectButton) rejectButton.disabled = true;
+
+                    try {
+                        const selectedItems = [...card.querySelectorAll('[data-knowledge-item]:checked')]
+                            .map((checkbox) => Number(checkbox.value));
+                        const data = await request(card.dataset.confirmUrl, {
+                            selected_items: selectedItems,
+                        });
+                        knowledgeFeedback.textContent = data.message;
+                        knowledgeFeedback.classList.remove('error');
+                        card.remove();
+                    } catch (error) {
+                        knowledgeFeedback.textContent = error.message;
+                        knowledgeFeedback.classList.add('error');
+                        confirmButton.disabled = false;
+                        if (rejectButton) rejectButton.disabled = false;
+                    }
+                });
+
+                rejectButton?.addEventListener('click', async () => {
+                    if (!window.confirm('Rifiutare l’importazione ed eliminare tutti i dati temporanei?')) return;
+                    rejectButton.disabled = true;
+                    if (confirmButton) confirmButton.disabled = true;
+
+                    try {
+                        const data = await request(card.dataset.rejectUrl);
+                        knowledgeFeedback.textContent = data.message;
+                        knowledgeFeedback.classList.remove('error');
+                        card.remove();
+                    } catch (error) {
+                        knowledgeFeedback.textContent = error.message;
+                        knowledgeFeedback.classList.add('error');
+                        rejectButton.disabled = false;
+                        if (confirmButton) confirmButton.disabled = false;
+                    }
+                });
+            };
+
+            document.querySelectorAll('[data-knowledge-ingestion]').forEach(bindKnowledgeCard);
+
+            knowledgeForm?.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const button = knowledgeForm.querySelector('button[type="submit"]');
+                const payload = new FormData(knowledgeForm);
+                button.disabled = true;
+                knowledgeFeedback.textContent = '';
+                knowledgeFeedback.classList.remove('error');
+
+                try {
+                    const response = await fetch(knowledgeStoreUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrf,
+                            'X-Requested-With': 'XMLHttpRequest',
+                        },
+                        body: payload,
+                    });
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.message || `Errore ${response.status}`);
+                    }
+
+                    knowledgeFeedback.textContent = data.message;
+                    knowledgeForm.reset();
+                    window.setTimeout(reloadWithCharacterSettings, 250);
+                } catch (error) {
+                    knowledgeFeedback.textContent = error.message;
+                    knowledgeFeedback.classList.add('error');
+                    button.disabled = false;
+                }
+            });
+
+            const processingKnowledgeCards = [
+                ...document.querySelectorAll('[data-knowledge-ingestion][data-status="pending"], [data-knowledge-ingestion][data-status="processing"]'),
+            ];
+
+            if (processingKnowledgeCards.length > 0) {
+                window.setInterval(async () => {
+                    for (const card of processingKnowledgeCards) {
+                        try {
+                            const response = await fetch(card.dataset.statusUrl, {
+                                headers: {
+                                    'Accept': 'application/json',
+                                    'X-Requested-With': 'XMLHttpRequest',
+                                },
+                            });
+
+                            if (!response.ok) continue;
+                            const data = await response.json();
+
+                            if (
+                                data.ingestion.status !== card.dataset.status
+                                || Number(data.ingestion.item_count) !== Number(card.dataset.itemCount)
+                            ) {
+                                reloadWithCharacterSettings();
+                                return;
+                            }
+                        } catch {
+                            // Il polling riprova al ciclo successivo.
+                        }
+                    }
+                }, 2000);
+            }
+
             document.getElementById('open-account-settings')?.addEventListener('click', () => {
                 accountSettingsBackdrop.hidden = false;
             });
@@ -747,6 +966,33 @@
                         setFeedback(error.message, true);
                         closeButton.disabled = false;
                         closeButton.textContent = 'Chiudi e salva memoria';
+                    }
+                });
+            }
+
+            if (discardButton) {
+                discardButton.addEventListener('click', async () => {
+                    const confirmation = discardButton.dataset.discardActive === '1'
+                        ? 'Eliminare questa chat senza salvare alcuna memoria? Messaggi e fatti emersi qui verranno cancellati.'
+                        : 'Eliminare questa chat dalla lista? Il riepilogo scomparirà, le memorie già salvate restano.';
+
+                    if (!window.confirm(confirmation)) {
+                        return;
+                    }
+
+                    const originalLabel = discardButton.textContent;
+                    discardButton.disabled = true;
+                    discardButton.textContent = 'Eliminazione…';
+                    setFeedback('');
+
+                    try {
+                        const data = await request(discardUrl, {}, 'DELETE');
+                        setFeedback(data.message);
+                        window.location.href = data.url;
+                    } catch (error) {
+                        setFeedback(error.message, true);
+                        discardButton.disabled = false;
+                        discardButton.textContent = originalLabel;
                     }
                 });
             }

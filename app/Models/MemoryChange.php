@@ -18,6 +18,7 @@ class MemoryChange extends Model
         'character_id',
         'source_conversation_id',
         'source_message_id',
+        'source_knowledge_ingestion_id',
         'action',
         'reason',
         'before',
@@ -66,5 +67,10 @@ class MemoryChange extends Model
     public function sourceMessage(): BelongsTo
     {
         return $this->belongsTo(Message::class, 'source_message_id');
+    }
+
+    public function sourceKnowledgeIngestion(): BelongsTo
+    {
+        return $this->belongsTo(KnowledgeIngestion::class, 'source_knowledge_ingestion_id');
     }
 }

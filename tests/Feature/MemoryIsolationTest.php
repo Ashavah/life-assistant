@@ -188,3 +188,77 @@ test('le memorie archiviate non entrano nel contesto', function () {
 
     expect($context['system_prompt'])->not->toContain('Fatto non più valido');
 });
+
+test('il globale include la propria memoria oltre a quella degli specialisti', function () {
+    $global = Character::factory()->global()->create();
+    $doctor = Character::factory()->create([
+        'slug' => CharacterSlug::Doctor,
+        'name' => 'Dottore',
+    ]);
+    Memory::factory()->for($global)->create([
+        'memory_key' => 'priorita_settimana',
+        'content' => 'Questa settimana conta più il riposo che le scadenze',
+    ]);
+    Memory::factory()->for($doctor)->create([
+        'memory_key' => 'sonno',
+        'content' => 'Dorme sei ore per notte',
+    ]);
+    $conversation = Conversation::factory()->for($global)->create();
+
+    $context = app(ChatContextBuilder::class)->build($conversation);
+
+    expect($context['system_prompt'])
+        ->toContain('MEMORIA GLOBALE')
+        ->toContain('Questa settimana conta più il riposo che le scadenze')
+        ->toContain('Dorme sei ore per notte');
+});
+
+test('lo specialista consulta un collega solo se viene nominato', function () {
+    $doctor = Character::factory()->create([
+        'slug' => CharacterSlug::Doctor,
+        'name' => 'Dottore',
+        'system_prompt' => 'PROMPT DOTTORE',
+    ]);
+    $manager = Character::factory()->create([
+        'slug' => CharacterSlug::Manager,
+        'name' => 'Manager',
+    ]);
+    Memory::factory()->for($manager)->create([
+        'memory_key' => 'budget_progetto',
+        'content' => 'Budget del progetto: 5000 euro',
+    ]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+    Message::factory()->for($conversation)->create([
+        'content' => 'Confronta questo malessere con quello che sa il Manager',
+    ]);
+
+    $withConsult = app(ChatContextBuilder::class)->build($conversation);
+    $withoutConsult = app(ChatContextBuilder::class)->build(
+        tap(Conversation::factory()->for($doctor)->create(), function (Conversation $other) {
+            Message::factory()->for($other)->create(['content' => 'Ho mal di testa']);
+        }),
+    );
+
+    expect($withConsult['system_prompt'])
+        ->toContain('CONSULTO COLLEGHI')
+        ->toContain('Budget del progetto: 5000 euro');
+    expect($withoutConsult['system_prompt'])
+        ->not->toContain('CONSULTO COLLEGHI')
+        ->not->toContain('Budget del progetto');
+});
+
+test('ogni chat porta il proprio riassunto persistente nel contesto', function () {
+    $doctor = Character::factory()->create([
+        'slug' => CharacterSlug::Doctor,
+        'system_prompt' => 'PROMPT DOTTORE',
+    ]);
+    $conversation = Conversation::factory()->for($doctor)->create([
+        'context_summary' => 'L’utente sta curando un’emicrania da tre settimane.',
+    ]);
+
+    $context = app(ChatContextBuilder::class)->build($conversation);
+
+    expect($context['system_prompt'])
+        ->toContain('CONTESTO DI QUESTA CHAT')
+        ->toContain('emicrania da tre settimane');
+});
