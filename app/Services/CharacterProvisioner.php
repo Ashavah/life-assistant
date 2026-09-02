@@ -10,6 +10,15 @@ class CharacterProvisioner
     public function provision(User $user): void
     {
         foreach ($this->definitions() as $definition) {
+            if ($definition['is_global']) {
+                $user->characters()->updateOrCreate(
+                    ['slug' => $definition['slug']],
+                    $definition,
+                );
+
+                continue;
+            }
+
             $user->characters()->firstOrCreate(
                 ['slug' => $definition['slug']],
                 $definition,

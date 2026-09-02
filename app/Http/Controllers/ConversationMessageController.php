@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreConversationMessageRequest;
 use App\Models\Conversation;
 use App\Services\ConversationChatService;
+use App\Services\MarkdownRenderer;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\JsonResponse;
 use RuntimeException;
@@ -39,6 +40,7 @@ class ConversationMessageController extends Controller
 
         return response()->json([
             'reply' => $result['reply'],
+            'reply_html' => MarkdownRenderer::toHtml($result['reply'])->toHtml(),
             'conversation_title' => $result['conversation_title'],
             'calendar_error' => $result['calendar_error'],
             'integration_errors' => $result['integration_errors'],

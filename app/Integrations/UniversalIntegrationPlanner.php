@@ -28,7 +28,7 @@ Azioni consentite:
 Le azioni propose_* NON vengono eseguite subito: preparano una scheda che richiede conferma.
 Non inventare ID, indirizzi, repository, canali, percorsi o destinatari.
 Restituisci esclusivamente JSON con questa forma, lasciando null o [] i campi non usati:
-{"action":"none","query":null,"id":null,"start":null,"end":null,"owner":null,"repo":null,"number":null,"path":null,"parent_id":null,"name":null,"title":null,"content":null,"to":[],"cc":[],"subject":null,"body":null,"channel":null,"thread_ts":null,"playlist_id":null,"uris":[],"uri":null,"device_id":null,"context_uri":null,"timezone":"{$timezone}","location":null,"description":null,"missing":[]}
+{"action":"none","query":null,"id":null,"range":null,"start":null,"end":null,"owner":null,"repo":null,"number":null,"path":null,"parent_id":null,"name":null,"title":null,"content":null,"to":[],"cc":[],"subject":null,"body":null,"channel":null,"thread_ts":null,"playlist_id":null,"uris":[],"uri":null,"device_id":null,"context_uri":null,"timezone":"{$timezone}","location":null,"description":null,"missing":[]}
 PROMPT);
 
         $action = is_string($result['action'] ?? null) ? $result['action'] : 'none';
@@ -41,6 +41,7 @@ PROMPT);
             'action' => $action,
             'query' => $this->string($result['query'] ?? null),
             'id' => $this->string($result['id'] ?? null),
+            'range' => $this->range($result['range'] ?? null),
             'start' => $this->string($result['start'] ?? null),
             'end' => $this->string($result['end'] ?? null),
             'owner' => $this->string($result['owner'] ?? null),
@@ -91,6 +92,7 @@ TEXT,
             IntegrationService::Spotify => <<<'TEXT'
 - now_playing: legge il brano corrente;
 - recent: legge gli ascolti recenti;
+- top_tracks: legge i brani più ascoltati; imposta range a short_term (ultime 4 settimane), medium_term (ultimi 6 mesi circa) o long_term (storico pluriennale), scegliendo la finestra più vicina al periodo chiesto;
 - search: cerca brani con query;
 - playlists: elenca playlist;
 - propose_add_to_playlist: prepara aggiunta con playlist_id e uris;
@@ -143,6 +145,11 @@ TEXT,
     private function string(mixed $value): ?string
     {
         return is_string($value) && trim($value) !== '' ? trim($value) : null;
+    }
+
+    private function range(mixed $value): ?string
+    {
+        return in_array($value, ['short_term', 'medium_term', 'long_term'], true) ? $value : null;
     }
 
     /**

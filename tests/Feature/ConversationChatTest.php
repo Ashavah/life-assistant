@@ -113,6 +113,45 @@ test('invia il contesto isolato e salva entrambi i messaggi', function () {
     });
 });
 
+test('restituisce la risposta anche in html formattato', function () {
+    Http::preventStrayRequests();
+    fakeChatAndMemory("Ecco il piano:\n- **Equilibrio**: 3 serie\n- **Calf raises**: 12 ripetizioni");
+    $conversation = Conversation::factory()
+        ->for(Character::factory()->create(['slug' => CharacterSlug::Doctor]))
+        ->create();
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'come rinforzo le caviglie?',
+    ])
+        ->assertOk()
+        ->assertJsonPath('reply_html', "<p>Ecco il piano:</p>\n<ul>\n<li><strong>Equilibrio</strong>: 3 serie</li>\n<li><strong>Calf raises</strong>: 12 ripetizioni</li>\n</ul>\n");
+});
+
+test('mostra i messaggi dell’assistente come markdown formattato e quelli utente come testo', function () {
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+    Message::factory()->for($conversation)->create(['content' => 'testo **non** interpretato']);
+    Message::factory()->for($conversation)->assistant()->create(['content' => 'ecco un **fatto** importante']);
+
+    $this->get(route('home', ['conversation' => $conversation->id]))
+        ->assertOk()
+        ->assertSee('ecco un <strong>fatto</strong> importante', false)
+        ->assertSee('testo **non** interpretato', false);
+});
+
+test('non interpreta html contenuto nelle risposte del modello', function () {
+    $doctor = Character::factory()->create(['slug' => CharacterSlug::Doctor]);
+    $conversation = Conversation::factory()->for($doctor)->create();
+    Message::factory()->for($conversation)->assistant()->create([
+        'content' => 'attento <script>alert(1)</script> e [link](javascript:alert(1))',
+    ]);
+
+    $this->get(route('home', ['conversation' => $conversation->id]))
+        ->assertOk()
+        ->assertDontSee('<script>alert(1)</script>', false)
+        ->assertDontSee('javascript:alert(1)', false);
+});
+
 test('invia lo storico in ordine cronologico con il nuovo messaggio per ultimo', function () {
     Http::preventStrayRequests();
     fakeChatAndMemory('Bevi acqua tiepida.');

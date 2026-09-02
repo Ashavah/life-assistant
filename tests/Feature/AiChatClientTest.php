@@ -29,6 +29,28 @@ test('ritenta quando il provider restituisce un contenuto strutturato vuoto', fu
     Http::assertSentCount(2);
 });
 
+test('dopo un contenuto vuoto ritenta senza la modalità json nativa', function () {
+    Http::fake([
+        'https://api.deepseek.com/v1/chat/completions' => Http::sequence()
+            ->push(['choices' => [['message' => ['content' => '']]]])
+            ->push(['choices' => [['message' => ['content' => "```json\n{\"intent\":\"list\"}\n```"]]]]),
+    ]);
+
+    expect((new AiChatClient)->completeStructured([
+        ['role' => 'user', 'content' => 'Cosa ho domani?'],
+    ], 'Rispondi in JSON.'))->toBe(['intent' => 'list']);
+
+    $requests = [];
+    Http::assertSent(function ($request) use (&$requests): bool {
+        $requests[] = $request->data();
+
+        return true;
+    });
+
+    expect($requests[0])->toHaveKey('response_format')
+        ->and($requests[1])->not->toHaveKey('response_format');
+});
+
 test('fallisce solo dopo aver esaurito i tentativi', function () {
     Http::fake([
         'https://api.deepseek.com/v1/chat/completions' => Http::response([

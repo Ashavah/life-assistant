@@ -32,6 +32,8 @@ class ConversationChatService
      */
     public function send(Conversation $conversation, string $content): array
     {
+        $this->ensureChatExecutionBudget();
+
         if (! $conversation->isActive()) {
             throw new RuntimeException('Questa conversazione è chiusa.');
         }
@@ -114,6 +116,8 @@ class ConversationChatService
      */
     public function close(Conversation $conversation): array
     {
+        $this->ensureChatExecutionBudget();
+
         if (! $conversation->isActive()) {
             throw new RuntimeException('Questa conversazione è già chiusa.');
         }
@@ -202,6 +206,14 @@ class ConversationChatService
         MemoryChange::query()
             ->where('source_conversation_id', $conversation->id)
             ->delete();
+    }
+
+    /**
+     * Ogni messaggio può richiedere più chiamate IA e integrazioni esterne in sequenza.
+     */
+    private function ensureChatExecutionBudget(): void
+    {
+        set_time_limit((int) config('ai.chat_request_timeout', 180));
     }
 
     /**

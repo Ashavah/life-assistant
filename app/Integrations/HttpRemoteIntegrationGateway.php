@@ -144,6 +144,7 @@ class HttpRemoteIntegrationGateway implements RemoteIntegrationGateway
         return match ($action) {
             'now_playing' => $this->spotifyPlayback($request->get('/me/player/currently-playing')),
             'recent' => $request->get('/me/player/recently-played', ['limit' => 15])->throw()->json('items', []),
+            'top_tracks' => $this->spotifyTopTracks($request, (string) ($parameters['range'] ?? 'medium_term')),
             'playlists' => $request->get('/me/playlists', ['limit' => 20])->throw()->json('items', []),
             default => $request->get('/search', [
                 'q' => (string) ($parameters['query'] ?? ''),
@@ -565,6 +566,32 @@ class HttpRemoteIntegrationGateway implements RemoteIntegrationGateway
         }
 
         return $response->throw()->json();
+    }
+
+    /**
+     * Spotify espone solo tre finestre temporali, quindi la classifica va sempre
+     * riportata indicando il periodo effettivamente coperto.
+     *
+     * @return array{range: string, period: string, tracks: array<int, mixed>}
+     */
+    private function spotifyTopTracks(PendingRequest $request, string $range): array
+    {
+        $range = in_array($range, ['short_term', 'medium_term', 'long_term'], true) ? $range : 'medium_term';
+
+        $tracks = $request->get('/me/top/tracks', [
+            'limit' => (int) config('integrations.max_list_items', 15),
+            'time_range' => $range,
+        ])->throw()->json('items', []);
+
+        return [
+            'range' => $range,
+            'period' => match ($range) {
+                'short_term' => 'ultime 4 settimane circa',
+                'long_term' => 'storico pluriennale con peso maggiore sugli ascolti recenti',
+                default => 'ultimi 6 mesi circa',
+            },
+            'tracks' => $tracks,
+        ];
     }
 
     /**

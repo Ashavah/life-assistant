@@ -4,6 +4,7 @@ use App\Contracts\RemoteIntegrationGateway;
 use App\ExternalActionStatus;
 use App\ExternalActionType;
 use App\Integrations\GenericOAuthDriver;
+use App\Integrations\IntegrationRouter;
 use App\Integrations\ServiceConnectionResolver;
 use App\Integrations\UniversalIntegrationPlanner;
 use App\IntegrationService;
@@ -259,6 +260,126 @@ test('una scrittura slack viene proposta e parte soltanto dopo conferma', functi
     $this->postJson(route('external-actions.confirm', $proposal))
         ->assertOk()
         ->assertJsonPath('status', ExternalActionStatus::Completed->value);
+});
+
+test('la classifica spotify usa la finestra temporale scelta dal pianificatore', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://api.deepseek.com/v1/chat/completions' => Http::response([
+            'choices' => [['message' => ['content' => 'Il brano più ascoltato è Nightcall.']]],
+        ]),
+    ]);
+    config([
+        'ai.api_key' => 'test-key',
+        'ai.url' => 'https://api.deepseek.com/v1/chat/completions',
+    ]);
+
+    $character = Character::factory()->for(multiProviderUser())->create(['slug' => 'psicologo']);
+    $conversation = Conversation::factory()->for($character)->create();
+    ServiceConnection::factory()->for(multiProviderUser())->create([
+        'provider' => ServiceProvider::Spotify,
+        'scopes' => ServiceProvider::Spotify->scopes(),
+    ]);
+    $this->mock(UniversalIntegrationPlanner::class, function (MockInterface $mock): void {
+        $mock->shouldReceive('plan')->once()->andReturn([
+            'action' => 'top_tracks',
+            'range' => 'medium_term',
+            'missing' => [],
+        ]);
+    });
+    $this->mock(RemoteIntegrationGateway::class, function (MockInterface $mock): void {
+        $mock->shouldReceive('read')
+            ->once()
+            ->withArgs(fn ($connection, $service, string $action, array $parameters): bool => $action === 'top_tracks'
+                && $parameters['range'] === 'medium_term')
+            ->andReturn([
+                'range' => 'medium_term',
+                'period' => 'ultimi 6 mesi circa',
+                'tracks' => [['name' => 'Nightcall']],
+            ]);
+    });
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'qual è la canzone che ho ascoltato di più negli ultimi 8 mesi?',
+    ])->assertOk();
+
+    Http::assertSent(fn ($request): bool => str_contains(
+        json_encode($request->data()['messages'], JSON_THROW_ON_ERROR),
+        'Nightcall',
+    ));
+});
+
+test('senza il permesso sulle classifiche spotify chiede di ricollegare l account', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'https://api.deepseek.com/v1/chat/completions' => Http::response([
+            'choices' => [['message' => ['content' => 'Serve ricollegare Spotify.']]],
+        ]),
+    ]);
+    config([
+        'ai.api_key' => 'test-key',
+        'ai.url' => 'https://api.deepseek.com/v1/chat/completions',
+    ]);
+
+    $character = Character::factory()->for(multiProviderUser())->create(['slug' => 'psicologo']);
+    $conversation = Conversation::factory()->for($character)->create();
+    ServiceConnection::factory()->for(multiProviderUser())->create([
+        'provider' => ServiceProvider::Spotify,
+        'scopes' => array_values(array_diff(ServiceProvider::Spotify->scopes(), ['user-top-read'])),
+    ]);
+    $this->mock(UniversalIntegrationPlanner::class, function (MockInterface $mock): void {
+        $mock->shouldReceive('plan')->once()->andReturn([
+            'action' => 'top_tracks',
+            'range' => 'long_term',
+            'missing' => [],
+        ]);
+    });
+    $this->mock(RemoteIntegrationGateway::class, function (MockInterface $mock): void {
+        $mock->shouldNotReceive('read');
+    });
+
+    $this->postJson(route('conversations.messages.store', $conversation), [
+        'message' => 'quali sono i brani che ascolto di più?',
+    ])->assertOk();
+
+    Http::assertSent(fn ($request): bool => str_contains(
+        json_encode($request->data()['messages'], JSON_THROW_ON_ERROR),
+        'ricollegare Spotify',
+    ));
+});
+
+test('una domanda di seguito resta sul servizio del messaggio precedente', function () {
+    $character = Character::factory()->for(multiProviderUser())->create(['slug' => 'psicologo']);
+    $conversation = Conversation::factory()->for($character)->create();
+    ServiceConnection::factory()->for(multiProviderUser())->create([
+        'provider' => ServiceProvider::Spotify,
+        'scopes' => ServiceProvider::Spotify->scopes(),
+    ]);
+
+    $services = app(IntegrationRouter::class)->route($conversation, [
+        ['role' => 'user', 'content' => 'gli ultimi brani che ho ascoltato?'],
+        ['role' => 'assistant', 'content' => 'Ecco i tuoi ascolti recenti.'],
+        ['role' => 'user', 'content' => 'e negli ultimi 5 mesi?'],
+    ]);
+
+    expect($services)->toBe([IntegrationService::Spotify]);
+});
+
+test('un messaggio lungo su un altro argomento non trascina il servizio precedente', function () {
+    $character = Character::factory()->for(multiProviderUser())->create(['slug' => 'psicologo']);
+    $conversation = Conversation::factory()->for($character)->create();
+    ServiceConnection::factory()->for(multiProviderUser())->create([
+        'provider' => ServiceProvider::Spotify,
+        'scopes' => ServiceProvider::Spotify->scopes(),
+    ]);
+
+    $services = app(IntegrationRouter::class)->route($conversation, [
+        ['role' => 'user', 'content' => 'gli ultimi brani che ho ascoltato?'],
+        ['role' => 'assistant', 'content' => 'Ecco i tuoi ascolti recenti.'],
+        ['role' => 'user', 'content' => 'cambiando discorso, ho litigato con mio fratello e da giorni faccio fatica a dormire, vorrei capire come gestire questa tensione senza rimuginare tutta la notte'],
+    ]);
+
+    expect($services)->toBe([]);
 });
 
 test('il resolver non usa connessioni appartenenti a un altro utente', function () {

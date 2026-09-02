@@ -45,6 +45,7 @@ class GenericIntegrationChatContext
 
             return new IntegrationPreparation(
                 service: $service,
+                context: $this->connectedText($service)."\nLa consultazione di questo turno non è riuscita per un problema tecnico momentaneo: dillo apertamente e proponi di riprovare, senza sostenere di non avere accesso al servizio.",
                 connection: $connection,
                 error: 'Non è stato possibile interpretare la richiesta relativa a '.$service->label().'.',
             );
@@ -70,6 +71,14 @@ class GenericIntegrationChatContext
             return $this->connected($service, $connection, 'Chiedi i dati mancanti senza inventarli.');
         }
 
+        if ($action === 'top_tracks' && ! in_array('user-top-read', $connection->scopes ?? [], true)) {
+            return $this->connected(
+                $service,
+                $connection,
+                'Le classifiche di ascolto non sono autorizzate: invita l’utente a ricollegare Spotify da Il mio account per concedere il permesso.',
+            );
+        }
+
         try {
             $result = $this->gateway->read($connection, $service, $action, $parameters);
         } catch (Throwable $exception) {
@@ -83,10 +92,12 @@ class GenericIntegrationChatContext
             );
         }
 
+        $readAt = CarbonImmutable::now($timezone)->format('d/m/Y H:i');
+
         return $this->connected(
             $service,
             $connection,
-            "Dati reali ottenuti dal servizio:\n".$this->json($result),
+            "Lettura appena eseguita sull'API ufficiale il {$readAt}: sono dati aggiornati a questo istante, non ricordi della conversazione. Presentali come consultazione fatta ora.\n".$this->json($result),
         );
     }
 
@@ -129,7 +140,7 @@ class GenericIntegrationChatContext
 
     private function connectedText(IntegrationService $service): string
     {
-        return strtoupper($service->label()).': integrazione attiva. Usa soltanto i dati reali riportati nel contesto e non dichiarare completata alcuna modifica senza conferma.';
+        return strtoupper($service->label()).': integrazione attiva e interrogata a ogni messaggio, quindi puoi consultare il servizio quando serve. Usa soltanto i dati reali riportati qui sotto, non negare di avere accesso e non dichiarare completata alcuna modifica senza conferma.';
     }
 
     /**
@@ -147,6 +158,12 @@ class GenericIntegrationChatContext
             $end = $plan['end'] ?: CarbonImmutable::parse($start)->addDays(7)->toIso8601String();
 
             return ['start' => $start, 'end' => $end];
+        }
+
+        if ($action === 'top_tracks') {
+            $plan['range'] = $plan['range'] ?: 'medium_term';
+
+            return $plan;
         }
 
         $required = match ($action) {

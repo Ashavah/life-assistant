@@ -69,13 +69,17 @@ class AiChatClient
         $profile = $this->profile('structured');
 
         for ($attempt = 1; $attempt <= self::STRUCTURED_ATTEMPTS && $content === null; $attempt++) {
+            /**
+             * Alcuni provider restituiscono contenuto vuoto proprio a causa della modalità
+             * JSON nativa: dal secondo tentativo il formato viene richiesto solo dal prompt.
+             */
             $response = $this->send(
                 $profile,
                 $this->withSystemPrompt($messages, $systemPrompt),
-                [
-                    'temperature' => 0.1,
-                    'response_format' => ['type' => 'json_object'],
-                ],
+                array_merge(
+                    ['temperature' => 0.1],
+                    $attempt === 1 ? ['response_format' => ['type' => 'json_object']] : [],
+                ),
             );
 
             $candidate = data_get($response->json(), 'choices.0.message.content');

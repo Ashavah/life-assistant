@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
 #[Fillable(['name', 'email', 'timezone', 'password'])]
 #[Hidden(['password', 'remember_token'])]
@@ -29,6 +30,20 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    /**
+     * Iniziali mostrate nell'avatar della barra superiore.
+     */
+    public function initials(): string
+    {
+        return Str::of($this->name)
+            ->trim()
+            ->explode(' ')
+            ->filter()
+            ->take(2)
+            ->map(fn (string $part): string => Str::upper(Str::substr($part, 0, 1)))
+            ->implode('') ?: '?';
     }
 
     public function serviceConnections(): HasMany

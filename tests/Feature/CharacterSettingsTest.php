@@ -52,6 +52,32 @@ test('valida i limiti delle impostazioni', function () {
         ->assertJsonValidationErrors(['name', 'description', 'system_prompt', 'tone']);
 });
 
+test('il globale non è modificabile e mostra soltanto l’importazione di conoscenze', function () {
+    $global = Character::factory()->global()->create([
+        'description' => 'Visione completa e multidisciplinare',
+        'system_prompt' => 'PROMPT GLOBALE STANDARD',
+        'tone' => 'Lucido e sintetico.',
+    ]);
+
+    $this->patchJson(route('characters.update', $global), [
+        'name' => 'Globale modificato',
+        'description' => 'Ambito modificato',
+        'system_prompt' => 'PROMPT MODIFICATO',
+        'tone' => 'Tono modificato',
+    ])->assertForbidden();
+
+    expect($global->refresh()->name)->toBe('Globale')
+        ->and($global->description)->toBe('Visione completa e multidisciplinare')
+        ->and($global->system_prompt)->toBe('PROMPT GLOBALE STANDARD')
+        ->and($global->tone)->toBe('Lucido e sintetico.');
+
+    $this->get(route('home', ['character' => $global->slug, 'settings' => 1]))
+        ->assertOk()
+        ->assertSee('Importa e smista conoscenze')
+        ->assertSee('Il Globale è gestito dal sistema e non è personalizzabile.')
+        ->assertDontSee('id="settings-form"', false);
+});
+
 test('il seeder non sovrascrive le personalizzazioni', function () {
     $doctor = Character::factory()->create([
         'slug' => CharacterSlug::Doctor,
@@ -61,6 +87,25 @@ test('il seeder non sovrascrive le personalizzazioni', function () {
     $this->seed(CharacterSeeder::class);
 
     expect($doctor->refresh()->name)->toBe('Il mio medico');
+});
+
+test('il seeder ripristina sempre la configurazione standard del globale', function () {
+    $global = Character::factory()->global()->create([
+        'name' => 'Globale alterato',
+        'description' => 'Descrizione alterata',
+        'system_prompt' => 'Prompt alterato',
+        'tone' => 'Tono alterato',
+        'sort_order' => 99,
+    ]);
+
+    $this->seed(CharacterSeeder::class);
+
+    expect($global->refresh()->name)->toBe('Globale')
+        ->and($global->description)->toBe('Visione completa e multidisciplinare')
+        ->and($global->system_prompt)->toContain('coordinatore globale di Life Assistant')
+        ->and($global->tone)->toBe('Lucido, sintetico e orientato alle connessioni utili.')
+        ->and($global->is_global)->toBeTrue()
+        ->and($global->sort_order)->toBe(0);
 });
 
 test('crea specialisti personalizzati con slug univoco per utente', function () {

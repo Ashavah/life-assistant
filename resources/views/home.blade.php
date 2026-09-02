@@ -5,109 +5,200 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="csrf-token" content="{{ csrf_token() }}">
         <title>{{ config('app.name') }}</title>
+        <script>
+            /* Applicato prima del rendering per evitare il lampo di tema chiaro. */
+            (function () {
+                var stored = null;
+
+                try {
+                    stored = window.localStorage.getItem('theme');
+                } catch (error) {
+                    stored = null;
+                }
+
+                var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.documentElement.dataset.theme = stored || (prefersDark ? 'dark' : 'light');
+            })();
+        </script>
         <style>
-            :root { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1c1917; background: #f5f5f4; }
+            :root {
+                color-scheme: light;
+                --bg: #f5f5f4; --surface: #fff; --surface-muted: #fafaf9; --surface-hover: #f5f5f4; --surface-hover-strong: #f0eeeb;
+                --border: #e7e5e4; --border-strong: #d6d3d1; --border-dashed: #a8a29e;
+                --text: #1c1917; --text-secondary: #57534e; --text-muted: #78716c; --text-soft: #a8a29e; --text-contrast: #292524;
+                --accent: #1c1917; --accent-text: #fff; --bubble-user: #1c1917; --bubble-user-text: #fff;
+                --global-bg: #292524; --global-text: #fff; --global-active-border: #0c0a09;
+                --badge-bg: rgb(120 113 108 / .12); --topbar-bg: rgb(255 255 255 / .85);
+                --shadow-soft: rgb(28 25 23 / .06); --shadow-menu: rgb(28 25 23 / .13); --shadow-panel: rgb(28 25 23 / .15); --overlay: rgb(28 25 23 / .35);
+                --success-bg: #f0fdf4; --success-text: #166534; --notice-bg: #ecfdf5;
+                --danger-bg: #fef2f2; --danger-text: #b91c1c; --danger-border: #fecaca;
+                --warning-bg: #fffbeb; --warning-border: #fde68a; --warning-text: #92400e;
+                --info-bg: #eff6ff; --info-border: #bfdbfe; --info-text: #475569;
+                --link: #1d4ed8; --code-bg: #f5f5f4; --pre-bg: #1c1917; --pre-text: #fafaf9;
+                font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                color: var(--text);
+                background: var(--bg);
+            }
+            [data-theme="dark"] {
+                color-scheme: dark;
+                --bg: #0c0a09; --surface: #1c1917; --surface-muted: #171412; --surface-hover: #292524; --surface-hover-strong: #292524;
+                --border: #292524; --border-strong: #44403c; --border-dashed: #57534e;
+                --text: #f5f5f4; --text-secondary: #d6d3d1; --text-muted: #a8a29e; --text-soft: #78716c; --text-contrast: #e7e5e4;
+                --accent: #e7e5e4; --accent-text: #1c1917; --bubble-user: #33302c; --bubble-user-text: #fafaf9;
+                --global-bg: #3f3a35; --global-text: #fafaf9; --global-active-border: #a8a29e;
+                --badge-bg: rgb(214 211 209 / .16); --topbar-bg: rgb(28 25 23 / .85);
+                --shadow-soft: rgb(0 0 0 / .4); --shadow-menu: rgb(0 0 0 / .55); --shadow-panel: rgb(0 0 0 / .6); --overlay: rgb(0 0 0 / .6);
+                --success-bg: rgb(22 101 52 / .22); --success-text: #86efac; --notice-bg: rgb(22 101 52 / .22);
+                --danger-bg: rgb(127 29 29 / .25); --danger-text: #fca5a5; --danger-border: #7f1d1d;
+                --warning-bg: rgb(120 53 15 / .3); --warning-border: #78350f; --warning-text: #fcd34d;
+                --info-bg: rgb(30 58 138 / .25); --info-border: #1e40af; --info-text: #cbd5e1;
+                --link: #93c5fd; --code-bg: #292524; --pre-bg: #0c0a09; --pre-text: #fafaf9;
+            }
             * { box-sizing: border-box; }
             body { margin: 0; min-height: 100vh; }
             button, textarea, input { font: inherit; }
             button { cursor: pointer; }
-            .app { display: grid; grid-template-columns: 18rem minmax(0, 1fr); min-height: 100vh; }
-            .sidebar { border-right: 1px solid #e7e5e4; background: #fafaf9; padding: 1rem; overflow-y: auto; }
+            .app { display: grid; grid-template-columns: 18rem minmax(0, 1fr); min-height: 100dvh; }
+            .sidebar { border-right: 1px solid var(--border); background: var(--surface-muted); padding: 1rem; overflow-y: auto; }
+            .sidebar-backdrop { display: none; }
             .brand { padding: .5rem .65rem 1.25rem; }
             .brand h1 { margin: 0; font-size: 1rem; }
-            .brand p { margin: .25rem 0 0; color: #78716c; font-size: .78rem; }
+            .brand p { margin: .25rem 0 0; color: var(--text-muted); font-size: .78rem; }
             .characters { display: flex; flex-direction: column; gap: .45rem; }
             .character-link { display: block; border: 1px solid transparent; border-radius: .8rem; padding: .7rem; color: inherit; text-decoration: none; }
-            .character-link:hover { background: #f0eeeb; }
-            .character-link.active { border-color: #d6d3d1; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .04); }
-            .character-link.global { background: #292524; color: #fff; }
-            .character-link.global.active { border-color: #0c0a09; }
+            .character-link:hover { background: var(--surface-hover-strong); }
+            .character-link.active { border-color: var(--border-strong); background: var(--surface); box-shadow: 0 1px 2px rgb(0 0 0 / .04); }
+            .character-link.global { background: var(--global-bg); color: var(--global-text); }
+            .character-link.global.active { border-color: var(--global-active-border); }
             .character-title { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .9rem; font-weight: 650; }
             .character-description { display: block; margin-top: .18rem; opacity: .65; font-size: .75rem; }
-            .memory-count { border-radius: 999px; background: rgb(120 113 108 / .12); padding: .1rem .4rem; font-size: .68rem; font-weight: 600; }
-            .conversations { display: flex; flex-direction: column; gap: .25rem; margin: .45rem 0 .4rem .75rem; padding-left: .55rem; border-left: 1px solid #d6d3d1; }
-            .conversation-link { overflow: hidden; padding: .35rem .45rem; border-radius: .45rem; color: #57534e; font-size: .76rem; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
-            .conversation-link:hover, .conversation-link.active { background: #e7e5e4; color: #1c1917; }
+            .memory-count { border-radius: 999px; background: var(--badge-bg); padding: .1rem .4rem; font-size: .68rem; font-weight: 600; }
+            .conversations { display: flex; flex-direction: column; gap: .25rem; margin: .45rem 0 .4rem .75rem; padding-left: .55rem; border-left: 1px solid var(--border-strong); }
+            .conversation-link { overflow: hidden; padding: .35rem .45rem; border-radius: .45rem; color: var(--text-secondary); font-size: .76rem; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+            .conversation-link:hover, .conversation-link.active { background: var(--border); color: var(--text); }
             .conversation-link.closed { opacity: .6; }
-            .new-chat { width: 100%; margin-top: .65rem; border: 1px dashed #a8a29e; border-radius: .65rem; background: transparent; padding: .55rem; color: #57534e; font-size: .8rem; }
-            .new-chat:hover { background: #fff; }
-            .main { min-width: 0; height: 100vh; display: flex; flex-direction: column; }
-            .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; border-bottom: 1px solid #e7e5e4; background: rgb(255 255 255 / .85); padding: .85rem 1.25rem; }
-            .identity h2 { margin: 0; font-size: 1rem; }
-            .identity p { margin: .2rem 0 0; color: #78716c; font-size: .78rem; }
-            .actions { display: flex; align-items: center; gap: .5rem; }
-            .logout-form { display: inline; }
-            .status-badge { border-radius: 999px; background: #f0fdf4; color: #166534; padding: .25rem .55rem; font-size: .7rem; font-weight: 600; }
-            .status-badge.closed { background: #f5f5f4; color: #78716c; }
-            .secondary { border: 1px solid #d6d3d1; border-radius: .65rem; background: #fff; padding: .45rem .7rem; color: #57534e; font-size: .78rem; }
-            .secondary:hover { background: #f5f5f4; }
-            .content { width: min(100%, 52rem); min-height: 0; flex: 1; margin: 0 auto; padding: 1rem; display: flex; flex-direction: column; }
-            .global-note { margin-bottom: .75rem; border: 1px solid #fde68a; border-radius: .75rem; background: #fffbeb; padding: .65rem .8rem; color: #92400e; font-size: .78rem; line-height: 1.4; }
+            .new-chat { width: 100%; margin-top: .65rem; border: 1px dashed var(--border-dashed); border-radius: .65rem; background: transparent; padding: .55rem; color: var(--text-secondary); font-size: .8rem; }
+            .new-chat:hover { background: var(--surface); }
+            .main { min-width: 0; height: 100dvh; display: flex; flex-direction: column; }
+            .topbar { display: flex; align-items: center; gap: .75rem; border-bottom: 1px solid var(--border); background: var(--topbar-bg); padding: .85rem 1.25rem; }
+            .identity { min-width: 0; flex: 1; }
+            .identity h2 { overflow: hidden; margin: 0; font-size: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+            .identity p { overflow: hidden; margin: .2rem 0 0; color: var(--text-muted); font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+            .actions { display: flex; align-items: center; gap: .4rem; }
+            .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 2.15rem; height: 2.15rem; flex: none; border: 1px solid var(--border-strong); border-radius: .65rem; background: var(--surface); padding: 0; color: var(--text-secondary); font-size: 1rem; line-height: 1; }
+            .icon-button:hover { background: var(--surface-hover); }
+            .menu-toggle { display: none; }
+            .avatar-button { display: inline-flex; align-items: center; justify-content: center; width: 2.15rem; height: 2.15rem; flex: none; border: 0; border-radius: 999px; background: var(--accent); padding: 0; color: var(--accent-text); font-size: .72rem; font-weight: 700; letter-spacing: .02em; }
+            .menu { position: relative; }
+            .menu-panel { position: absolute; right: 0; top: calc(100% + .4rem); z-index: 15; display: grid; min-width: 14rem; gap: .1rem; border: 1px solid var(--border); border-radius: .8rem; background: var(--surface); padding: .35rem; box-shadow: 0 14px 30px var(--shadow-menu); }
+            .menu-panel[hidden] { display: none; }
+            .menu-item { display: block; width: 100%; border: 0; border-radius: .55rem; background: transparent; padding: .55rem .6rem; color: var(--text-contrast); font-size: .8rem; text-align: left; text-decoration: none; }
+            .menu-item:hover { background: var(--surface-hover); }
+            .menu-item.danger { border: 0; color: var(--danger-text); }
+            .menu-item.toggle { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
+            .switch { position: relative; width: 2.1rem; height: 1.2rem; flex: none; border-radius: 999px; background: var(--border-strong); transition: background .18s ease; }
+            .switch::after { content: ''; position: absolute; top: .15rem; left: .15rem; width: .9rem; height: .9rem; border-radius: 999px; background: var(--surface); transition: transform .18s ease; }
+            .menu-item[aria-checked="true"] .switch { background: #16a34a; }
+            .menu-item[aria-checked="true"] .switch::after { transform: translateX(.9rem); }
+            .menu-heading { padding: .45rem .6rem .35rem; color: var(--text-soft); font-size: .7rem; overflow: hidden; text-overflow: ellipsis; }
+            .menu-heading strong { display: block; color: var(--text); font-size: .82rem; }
+            .menu-separator { margin: .3rem .35rem; border-top: 1px solid var(--border); }
+            .status-badge { border-radius: 999px; background: var(--success-bg); color: var(--success-text); padding: .25rem .55rem; font-size: .7rem; font-weight: 600; }
+            .status-badge.closed { background: var(--surface-hover); color: var(--text-muted); }
+            .secondary { border: 1px solid var(--border-strong); border-radius: .65rem; background: var(--surface); padding: .45rem .7rem; color: var(--text-secondary); font-size: .78rem; }
+            .secondary:hover { background: var(--surface-hover); }
+            .content { width: min(100%, 72rem); min-height: 0; flex: 1; margin: 0 auto; padding: 1rem 1.5rem; display: flex; flex-direction: column; }
+            .global-note { margin-bottom: .75rem; border: 1px solid var(--warning-border); border-radius: .75rem; background: var(--warning-bg); padding: .65rem .8rem; color: var(--warning-text); font-size: .78rem; line-height: 1.4; }
             .messages { min-height: 0; flex: 1; display: flex; flex-direction: column; gap: .75rem; overflow-y: auto; padding: .25rem; }
-            .message { max-width: 82%; border-radius: 1rem; padding: .7rem .9rem; font-size: .93rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-            .message.user { margin-left: auto; background: #1c1917; color: #fff; border-bottom-right-radius: .25rem; }
-            .message.assistant { align-self: flex-start; border: 1px solid #e7e5e4; background: #fff; border-bottom-left-radius: .25rem; }
-            .empty { margin: auto; max-width: 26rem; color: #a8a29e; text-align: center; font-size: .9rem; line-height: 1.55; }
-            .feedback { min-height: 1.2rem; margin: .4rem .2rem; color: #166534; font-size: .78rem; }
-            .feedback.error { color: #b91c1c; }
-            .composer { display: flex; align-items: flex-end; gap: .6rem; border: 1px solid #d6d3d1; border-radius: 1rem; background: #fff; padding: .5rem; box-shadow: 0 8px 24px rgb(28 25 23 / .06); }
-            .composer textarea { min-height: 2.8rem; max-height: 10rem; flex: 1; resize: vertical; border: 0; outline: 0; padding: .6rem; color: #1c1917; }
-            .send { border: 0; border-radius: .75rem; background: #1c1917; padding: .65rem .9rem; color: #fff; font-size: .82rem; font-weight: 600; }
+            .message { max-width: min(82%, 50rem); border-radius: 1rem; padding: .75rem 1rem; font-size: .93rem; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+            .message.user { margin-left: auto; background: var(--bubble-user); color: var(--bubble-user-text); border-bottom-right-radius: .25rem; }
+            .message.assistant { align-self: flex-start; border: 1px solid var(--border); background: var(--surface); border-bottom-left-radius: .25rem; }
+            .rich-text { white-space: normal; }
+            .rich-text > :first-child { margin-top: 0; }
+            .rich-text > :last-child { margin-bottom: 0; }
+            .rich-text p { margin: .55rem 0; }
+            .rich-text ul, .rich-text ol { margin: .55rem 0; padding-left: 1.15rem; }
+            .rich-text li { margin: .2rem 0; }
+            .rich-text li::marker { color: var(--text-soft); }
+            .rich-text li > ul, .rich-text li > ol { margin: .2rem 0; }
+            .rich-text h1, .rich-text h2, .rich-text h3, .rich-text h4 { margin: .9rem 0 .4rem; font-size: .95rem; font-weight: 700; line-height: 1.35; }
+            .rich-text strong { font-weight: 650; }
+            .rich-text a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+            .rich-text code { border-radius: .35rem; background: var(--code-bg); padding: .1rem .3rem; font-size: .85em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+            .rich-text pre { overflow-x: auto; margin: .6rem 0; border-radius: .6rem; background: var(--pre-bg); padding: .7rem .8rem; }
+            .rich-text pre code { background: none; padding: 0; color: var(--pre-text); }
+            .rich-text blockquote { margin: .6rem 0; border-left: 3px solid var(--border); padding: .1rem 0 .1rem .7rem; color: var(--text-secondary); }
+            .rich-text hr { margin: .8rem 0; border: 0; border-top: 1px solid var(--border); }
+            .rich-text table { display: block; overflow-x: auto; margin: .6rem 0; border-collapse: collapse; font-size: .85rem; }
+            .rich-text th, .rich-text td { border: 1px solid var(--border); padding: .35rem .55rem; text-align: left; }
+            .rich-text th { background: var(--surface-muted); font-weight: 650; }
+            .empty { margin: auto; max-width: 26rem; color: var(--text-soft); text-align: center; font-size: .9rem; line-height: 1.55; }
+            .feedback { min-height: 1.2rem; margin: .4rem .2rem; color: var(--success-text); font-size: .78rem; }
+            .feedback.error { color: var(--danger-text); }
+            .composer { display: flex; align-items: flex-end; gap: .6rem; border: 1px solid var(--border-strong); border-radius: 1rem; background: var(--surface); padding: .5rem; box-shadow: 0 8px 24px var(--shadow-soft); }
+            .composer textarea { min-height: 2.8rem; max-height: 16rem; flex: 1; overflow-y: auto; resize: none; border: 0; outline: 0; background: transparent; padding: .6rem; color: var(--text); font: inherit; line-height: 1.5; }
+            .send { display: inline-flex; align-items: center; justify-content: center; height: 2.8rem; flex: none; border: 0; border-radius: .75rem; background: var(--accent); padding: 0 1.1rem; color: var(--accent-text); font-size: .82rem; font-weight: 600; }
             .send:disabled, button:disabled { cursor: not-allowed; opacity: .45; }
-            .proposal { align-self: flex-start; width: min(100%, 34rem); border: 1px solid #bfdbfe; border-radius: .85rem; background: #eff6ff; padding: .8rem; }
+            .proposal { align-self: flex-start; width: min(100%, 34rem); border: 1px solid var(--info-border); border-radius: .85rem; background: var(--info-bg); padding: .8rem; }
             .proposal h4 { margin: 0 0 .35rem; font-size: .9rem; }
-            .proposal p { margin: .2rem 0; color: #475569; font-size: .78rem; line-height: 1.45; }
+            .proposal p { margin: .2rem 0; color: var(--info-text); font-size: .78rem; line-height: 1.45; }
             .proposal-actions { display: flex; gap: .45rem; margin-top: .65rem; }
             .proposal-status { font-size: .72rem; font-weight: 700; text-transform: uppercase; }
-            .danger { border-color: #fecaca; color: #b91c1c; }
-            .notice { margin: .5rem 1.25rem 0; border-radius: .6rem; padding: .55rem .7rem; background: #ecfdf5; color: #166534; font-size: .78rem; }
-            .notice.error { background: #fef2f2; color: #b91c1c; }
-            .settings-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; justify-items: end; background: rgb(28 25 23 / .35); }
+            .danger { border-color: var(--danger-border); color: var(--danger-text); }
+            .notice { margin: .5rem 1.25rem 0; border-radius: .6rem; padding: .55rem .7rem; background: var(--notice-bg); color: var(--success-text); font-size: .78rem; }
+            .notice.error { background: var(--danger-bg); color: var(--danger-text); }
+            .settings-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; justify-items: end; background: var(--overlay); }
             .settings-backdrop[hidden] { display: none; }
-            .settings-panel { width: min(100%, 34rem); height: 100%; overflow-y: auto; background: #fff; padding: 1.25rem; box-shadow: -12px 0 32px rgb(28 25 23 / .15); }
+            .settings-panel { width: min(100%, 34rem); height: 100%; overflow-y: auto; background: var(--surface); padding: 1.25rem; box-shadow: -12px 0 32px var(--shadow-panel); }
             .settings-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
             .settings-header h3 { margin: 0; }
             .settings-form { display: grid; gap: .9rem; margin-top: 1rem; }
-            .settings-form label { display: grid; gap: .35rem; color: #57534e; font-size: .78rem; font-weight: 650; }
-            .settings-form input, .settings-form textarea, .settings-form select { width: 100%; border: 1px solid #d6d3d1; border-radius: .65rem; background: #fff; padding: .65rem; color: #1c1917; resize: vertical; }
-            .integration-card { margin-top: 1.25rem; border-top: 1px solid #e7e5e4; padding-top: 1rem; }
+            .settings-form label { display: grid; gap: .35rem; color: var(--text-secondary); font-size: .78rem; font-weight: 650; }
+            .settings-form input, .settings-form textarea, .settings-form select { width: 100%; border: 1px solid var(--border-strong); border-radius: .65rem; background: var(--surface); padding: .65rem; color: var(--text); resize: vertical; }
+            .knowledge-textarea { resize: none; min-height: 7rem; max-height: 18rem; overflow-y: auto; line-height: 1.5; }
+            .integration-card { margin-top: 1.25rem; border-top: 1px solid var(--border); padding-top: 1rem; }
             .integration-card h4 { margin: 0 0 .35rem; }
-            .integration-card p { color: #78716c; font-size: .8rem; line-height: 1.45; }
+            .integration-card p { color: var(--text-muted); font-size: .8rem; line-height: 1.45; }
             .integration-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
-            .knowledge-card { margin-top: .75rem; border: 1px solid #e7e5e4; border-radius: .75rem; background: #fafaf9; padding: .75rem; }
+            .knowledge-card { margin-top: .75rem; border: 1px solid var(--border); border-radius: .75rem; background: var(--surface-muted); padding: .75rem; }
             .knowledge-card-header { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
             .knowledge-card-header h5 { overflow: hidden; margin: 0; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
-            .knowledge-status { border-radius: 999px; background: #e7e5e4; padding: .18rem .45rem; color: #57534e; font-size: .65rem; font-weight: 700; text-transform: uppercase; }
+            .knowledge-status { border-radius: 999px; background: var(--border); padding: .18rem .45rem; color: var(--text-secondary); font-size: .65rem; font-weight: 700; text-transform: uppercase; }
             .knowledge-group { display: grid; gap: .45rem; margin-top: .75rem; }
-            .knowledge-group h6 { margin: 0; color: #57534e; font-size: .72rem; text-transform: uppercase; }
-            .knowledge-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .55rem; border: 1px solid #e7e5e4; border-radius: .6rem; background: #fff; padding: .6rem; }
+            .knowledge-group h6 { margin: 0; color: var(--text-secondary); font-size: .72rem; text-transform: uppercase; }
+            .knowledge-item { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .55rem; border: 1px solid var(--border); border-radius: .6rem; background: var(--surface); padding: .6rem; }
             .knowledge-item input { width: auto; margin-top: .2rem; }
-            .knowledge-item p { margin: 0; color: #292524; font-size: .78rem; line-height: 1.4; }
-            .knowledge-meta { display: block; margin-top: .25rem; color: #78716c; font-size: .68rem; }
+            .knowledge-item p { margin: 0; color: var(--text-contrast); font-size: .78rem; line-height: 1.4; }
+            .knowledge-meta { display: block; margin-top: .25rem; color: var(--text-muted); font-size: .68rem; }
             .knowledge-actions { display: flex; gap: .45rem; margin-top: .75rem; }
-            .knowledge-empty { margin: .6rem 0 0; color: #78716c; font-size: .76rem; }
+            .knowledge-empty { margin: .6rem 0 0; color: var(--text-muted); font-size: .76rem; }
             .no-conversation { margin: auto; text-align: center; }
             .no-conversation h3 { margin: 0 0 .35rem; }
-            .no-conversation p { margin: 0 0 1rem; color: #78716c; font-size: .86rem; }
-            .primary { display: inline-block; border: 0; border-radius: .75rem; background: #1c1917; padding: .65rem 1rem; color: #fff; font-weight: 600; text-decoration: none; }
-            @media (max-width: 760px) {
-                .app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-                .sidebar { border-right: 0; border-bottom: 1px solid #e7e5e4; padding: .65rem; overflow-x: auto; }
-                .brand { display: none; }
-                .characters { flex-direction: row; min-width: max-content; }
-                .character-link { width: 10rem; }
-                .conversations, .new-chat { display: none; }
-                .main { height: calc(100vh - 5.25rem); }
+            .no-conversation p { margin: 0 0 1rem; color: var(--text-muted); font-size: .86rem; }
+            .primary { display: inline-block; border: 0; border-radius: .75rem; background: var(--accent); padding: .65rem 1rem; color: var(--accent-text); font-weight: 600; text-decoration: none; }
+            @media (max-width: 860px) {
+                .app { grid-template-columns: minmax(0, 1fr); }
+                .sidebar { position: fixed; z-index: 30; top: 0; bottom: 0; left: 0; width: min(86vw, 19rem); transform: translateX(-100%); transition: transform .22s ease; }
+                .sidebar.open { transform: none; }
+                .sidebar-backdrop { position: fixed; inset: 0; z-index: 25; display: block; background: var(--overlay); }
+                .sidebar-backdrop[hidden] { display: none; }
+                .menu-toggle { display: inline-flex; }
                 .topbar { padding: .7rem .8rem; }
+                .topbar .status-badge { display: none; }
                 .content { padding: .65rem; }
                 .message { max-width: 92%; }
-                .actions .status-badge, .logout-form { display: none; }
+                .settings-panel { padding: 1rem; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .sidebar { transition: none; }
             }
         </style>
     </head>
     <body>
         <div class="app">
-            <aside class="sidebar">
+            <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+            <aside class="sidebar" id="sidebar">
                 <div class="brand">
                     <h1>{{ config('app.name') }}</h1>
                     <p>Assistenti separati, memoria persistente.</p>
@@ -175,34 +266,82 @@
             <main class="main">
                 @if ($selectedCharacter)
                     <header class="topbar">
+                        <button
+                            type="button"
+                            class="icon-button menu-toggle"
+                            id="sidebar-toggle"
+                            aria-controls="sidebar"
+                            aria-expanded="false"
+                            aria-label="Apri l’elenco dei personaggi"
+                        >☰</button>
+
                         <div class="identity">
                             <h2>{{ $selectedCharacter->name }}</h2>
                             <p id="conversation-title">{{ $selectedConversation?->title ?? $selectedCharacter->description }}</p>
                         </div>
+
                         <div class="actions">
-                            <span class="status-badge">{{ auth()->user()->name }}</span>
                             @if ($selectedConversation)
                                 <span class="status-badge {{ $selectedConversation->isActive() ? '' : 'closed' }}">
                                     {{ $selectedConversation->isActive() ? 'Attiva' : 'Chiusa' }}
                                 </span>
-                                @if ($selectedConversation->isActive())
-                                    <button type="button" class="secondary" id="close-chat">Chiudi e salva memoria</button>
-                                @endif
+                            @endif
+
+                            <div class="menu" data-menu>
                                 <button
                                     type="button"
-                                    class="secondary danger"
-                                    id="discard-chat"
-                                    data-discard-active="{{ $selectedConversation->isActive() ? '1' : '0' }}"
-                                >
-                                    {{ $selectedConversation->isActive() ? 'Chiudi e elimina' : 'Elimina chat' }}
-                                </button>
-                            @endif
-                            <button type="button" class="secondary" id="open-settings">Personaggio</button>
-                            <button type="button" class="secondary" id="open-account-settings">Il mio account</button>
-                            <form class="logout-form" method="POST" action="{{ route('logout') }}">
-                                @csrf
-                                <button type="submit" class="secondary">Esci</button>
-                            </form>
+                                    class="icon-button"
+                                    data-menu-trigger
+                                    aria-haspopup="true"
+                                    aria-expanded="false"
+                                    aria-label="Azioni della chat"
+                                >⋯</button>
+                                <div class="menu-panel" data-menu-panel hidden>
+                                    @if ($selectedConversation)
+                                        @if ($selectedConversation->isActive())
+                                            <button type="button" class="menu-item" id="close-chat">Chiudi e salva memoria</button>
+                                        @endif
+                                        <button
+                                            type="button"
+                                            class="menu-item danger"
+                                            id="discard-chat"
+                                            data-discard-active="{{ $selectedConversation->isActive() ? '1' : '0' }}"
+                                        >
+                                            {{ $selectedConversation->isActive() ? 'Chiudi e elimina' : 'Elimina chat' }}
+                                        </button>
+                                        <div class="menu-separator"></div>
+                                    @endif
+                                    <button type="button" class="menu-item" id="open-settings">
+                                        {{ $selectedCharacter->is_global ? 'Importa conoscenze' : 'Impostazioni di '.$selectedCharacter->name }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="menu" data-menu>
+                                <button
+                                    type="button"
+                                    class="avatar-button"
+                                    data-menu-trigger
+                                    aria-haspopup="true"
+                                    aria-expanded="false"
+                                    aria-label="Il mio account"
+                                >{{ auth()->user()->initials() }}</button>
+                                <div class="menu-panel" data-menu-panel hidden>
+                                    <div class="menu-heading">
+                                        <strong>{{ auth()->user()->name }}</strong>
+                                        {{ auth()->user()->email }}
+                                    </div>
+                                    <button type="button" class="menu-item toggle" id="theme-toggle" role="switch" aria-checked="false" data-keep-open>
+                                        <span>Tema scuro</span>
+                                        <span class="switch" aria-hidden="true"></span>
+                                    </button>
+                                    <button type="button" class="menu-item" id="open-account-settings">Il mio account</button>
+                                    <form method="POST" action="{{ route('logout') }}">
+                                        @csrf
+                                        <button type="submit" class="menu-item danger">Esci</button>
+                                    </form>
+                                </div>
+                            </div>
                         </div>
                     </header>
 
@@ -223,10 +362,14 @@
                         @if ($selectedConversation)
                             <div class="messages" id="messages">
                                 @if (! $selectedConversation->isActive() && filled($selectedConversation->summary))
-                                    <article class="message assistant">{{ $selectedConversation->summary }}</article>
+                                    <article class="message assistant rich-text">@markdown($selectedConversation->summary)</article>
                                 @else
                                     @forelse ($selectedConversation->messages as $message)
-                                        <article class="message {{ $message->role }}">{{ $message->content }}</article>
+                                        @if ($message->role === 'assistant')
+                                            <article class="message assistant rich-text">@markdown($message->content)</article>
+                                        @else
+                                            <article class="message user">{{ $message->content }}</article>
+                                        @endif
                                         @foreach ($selectedConversation->externalActionProposals->where('source_message_id', $message->id) as $proposal)
                                             <section
                                                 class="proposal"
@@ -267,7 +410,7 @@
 
                             @if ($selectedConversation->isActive())
                                 <form class="composer" id="chat-form">
-                                    <textarea id="message" name="message" rows="2" required maxlength="4000" placeholder="Scrivi a {{ $selectedCharacter->name }}…"></textarea>
+                                    <textarea id="message" name="message" rows="1" required maxlength="4000" placeholder="Scrivi a {{ $selectedCharacter->name }}…"></textarea>
                                     <button type="submit" class="send" id="send-button">Invia</button>
                                 </form>
                             @else
@@ -294,41 +437,45 @@
             <div class="settings-backdrop" id="settings-backdrop" @if (! $settingsOpen) hidden @endif>
                 <aside class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
                     <div class="settings-header">
-                        <h3 id="settings-title">Impostazioni di {{ $selectedCharacter->name }}</h3>
+                        <h3 id="settings-title">
+                            {{ $selectedCharacter->is_global ? 'Conoscenze globali' : 'Impostazioni di '.$selectedCharacter->name }}
+                        </h3>
                         <button type="button" class="secondary" id="close-settings">Chiudi</button>
                     </div>
 
-                    <form class="settings-form" id="settings-form">
-                        <label>Nome
-                            <input name="name" value="{{ $selectedCharacter->name }}" required maxlength="255">
-                        </label>
-                        <label>Descrizione e ambito
-                            <textarea name="description" rows="3" required maxlength="255">{{ $selectedCharacter->description }}</textarea>
-                        </label>
-                        <label>System prompt
-                            <textarea name="system_prompt" rows="10" required maxlength="12000">{{ $selectedCharacter->system_prompt }}</textarea>
-                        </label>
-                        <label>Tono
-                            <textarea name="tone" rows="3" required maxlength="1000">{{ $selectedCharacter->tone }}</textarea>
-                        </label>
-                        <p class="feedback" id="settings-feedback"></p>
-                        <button type="submit" class="primary" id="save-settings">Salva impostazioni</button>
-                    </form>
+                    @unless ($selectedCharacter->is_global)
+                        <form class="settings-form" id="settings-form">
+                            <label>Nome
+                                <input name="name" value="{{ $selectedCharacter->name }}" required maxlength="255">
+                            </label>
+                            <label>Descrizione e ambito
+                                <textarea name="description" rows="3" required maxlength="255">{{ $selectedCharacter->description }}</textarea>
+                            </label>
+                            <label>System prompt
+                                <textarea name="system_prompt" rows="10" required maxlength="12000">{{ $selectedCharacter->system_prompt }}</textarea>
+                            </label>
+                            <label>Tono
+                                <textarea name="tone" rows="3" required maxlength="1000">{{ $selectedCharacter->tone }}</textarea>
+                            </label>
+                            <p class="feedback" id="settings-feedback"></p>
+                            <button type="submit" class="primary" id="save-settings">Salva impostazioni</button>
+                        </form>
+                    @endunless
 
                     <section class="integration-card">
-                        <h4>Importa conoscenze</h4>
+                        <h4>{{ $selectedCharacter->is_global ? 'Importa e smista conoscenze' : 'Importa conoscenze' }}</h4>
                         <p>
                             Incolla testo o carica TXT, Markdown, PDF, DOCX e immagini.
                             Nulla entra nella memoria finché non confermi l’anteprima.
                             @if ($selectedCharacter->is_global)
-                                Il Globale distribuirà i fatti solo agli specialisti pertinenti e creerà sintesi globali soltanto quando trasversali.
+                                Il Globale è gestito dal sistema e non è personalizzabile. Analizzerà il contenuto e distribuirà i fatti soltanto agli specialisti pertinenti, creando sintesi proprie solo quando realmente trasversali.
                             @else
                                 {{ $selectedCharacter->name }} ignorerà i fatti estranei al proprio ambito.
                             @endif
                         </p>
                         <form class="settings-form" id="knowledge-form" enctype="multipart/form-data">
                             <label>Testo da assimilare
-                                <textarea name="text" rows="5" maxlength="{{ config('knowledge.max_text_characters') }}" placeholder="Incolla qui informazioni, note o contesto…"></textarea>
+                                <textarea class="knowledge-textarea" name="text" rows="5" maxlength="{{ config('knowledge.max_text_characters') }}" placeholder="Incolla qui informazioni, note o contesto…"></textarea>
                             </label>
                             <label>File
                                 <input
@@ -520,10 +667,13 @@
             const conversationTitle = document.getElementById('conversation-title');
             const currentConversationTitleLink = document.querySelector('[data-current-conversation-title="true"]');
             const settingsBackdrop = document.getElementById('settings-backdrop');
+            const settingsPanel = settingsBackdrop?.querySelector('.settings-panel');
             const settingsForm = document.getElementById('settings-form');
             const settingsFeedback = document.getElementById('settings-feedback');
             const knowledgeForm = document.getElementById('knowledge-form');
             const knowledgeFeedback = document.getElementById('knowledge-feedback');
+            const knowledgeTextarea = knowledgeForm?.querySelector('textarea[name="text"]');
+            const knowledgeDraftKey = {{ Js::from($selectedCharacter ? 'knowledge-draft-'.$selectedCharacter->id : null) }};
             const accountSettingsBackdrop = document.getElementById('account-settings-backdrop');
             const accountProfileForm = document.getElementById('account-profile-form');
             const accountProfileFeedback = document.getElementById('account-profile-feedback');
@@ -569,10 +719,136 @@
             };
 
             const reloadWithCharacterSettings = () => {
+                if (settingsPanel) {
+                    sessionStorage.setItem('settings-panel-scroll', String(settingsPanel.scrollTop));
+                }
+
                 const url = new URL(window.location.href);
                 url.searchParams.set('settings', '1');
                 window.location.href = url.toString();
             };
+
+            let knowledgeReloadPending = false;
+
+            const hasKnowledgeDraft = () => Boolean(knowledgeTextarea?.value.trim());
+
+            const isKnowledgeEditing = () => (
+                document.activeElement === knowledgeTextarea || hasKnowledgeDraft()
+            );
+
+            const saveKnowledgeDraft = () => {
+                if (!knowledgeTextarea || !knowledgeDraftKey) return;
+
+                if (hasKnowledgeDraft()) {
+                    sessionStorage.setItem(knowledgeDraftKey, knowledgeTextarea.value);
+                } else {
+                    sessionStorage.removeItem(knowledgeDraftKey);
+                }
+            };
+
+            const restoreKnowledgeDraft = () => {
+                if (!knowledgeTextarea || !knowledgeDraftKey) return;
+
+                const draft = sessionStorage.getItem(knowledgeDraftKey);
+
+                if (draft) {
+                    knowledgeTextarea.value = draft;
+                    resizeKnowledgeTextarea();
+                }
+            };
+
+            const clearKnowledgeDraft = () => {
+                if (knowledgeDraftKey) {
+                    sessionStorage.removeItem(knowledgeDraftKey);
+                }
+            };
+
+            const resizeKnowledgeTextarea = () => {
+                if (!knowledgeTextarea) return;
+
+                knowledgeTextarea.style.height = 'auto';
+                knowledgeTextarea.style.height = `${Math.min(knowledgeTextarea.scrollHeight, 18 * 16)}px`;
+            };
+
+            const queueKnowledgeReload = () => {
+                if (isKnowledgeEditing()) {
+                    knowledgeReloadPending = true;
+                    return;
+                }
+
+                reloadWithCharacterSettings();
+            };
+
+            const sidebar = document.getElementById('sidebar');
+            const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+            const menus = Array.from(document.querySelectorAll('[data-menu]'));
+
+            const setSidebar = (open) => {
+                if (!sidebar) return;
+                sidebar.classList.toggle('open', open);
+                if (sidebarBackdrop) sidebarBackdrop.hidden = !open;
+                sidebarToggle?.setAttribute('aria-expanded', open ? 'true' : 'false');
+            };
+
+            const closeMenus = (except = null) => {
+                menus.forEach((menu) => {
+                    if (menu === except) return;
+                    menu.querySelector('[data-menu-panel]').hidden = true;
+                    menu.querySelector('[data-menu-trigger]').setAttribute('aria-expanded', 'false');
+                });
+            };
+
+            sidebarToggle?.addEventListener('click', () => setSidebar(!sidebar.classList.contains('open')));
+            sidebarBackdrop?.addEventListener('click', () => setSidebar(false));
+
+            menus.forEach((menu) => {
+                const trigger = menu.querySelector('[data-menu-trigger]');
+                const panel = menu.querySelector('[data-menu-panel]');
+
+                trigger.addEventListener('click', () => {
+                    const shouldOpen = panel.hidden;
+                    closeMenus(menu);
+                    panel.hidden = !shouldOpen;
+                    trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+                });
+
+                panel.addEventListener('click', (event) => {
+                    if (event.target.closest('[data-keep-open]')) return;
+                    closeMenus();
+                });
+            });
+
+            const themeToggle = document.getElementById('theme-toggle');
+
+            const applyTheme = (theme) => {
+                document.documentElement.dataset.theme = theme;
+                themeToggle?.setAttribute('aria-checked', theme === 'dark' ? 'true' : 'false');
+            };
+
+            applyTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light');
+
+            themeToggle?.addEventListener('click', () => {
+                const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+
+                try {
+                    window.localStorage.setItem('theme', theme);
+                } catch (error) {
+                    // Senza storage il tema resta valido solo per questa pagina.
+                }
+
+                applyTheme(theme);
+            });
+
+            document.addEventListener('click', (event) => {
+                if (!event.target.closest('[data-menu]')) closeMenus();
+            });
+
+            document.addEventListener('keydown', (event) => {
+                if (event.key !== 'Escape') return;
+                closeMenus();
+                setSidebar(false);
+            });
 
             const setFeedback = (text, isError = false) => {
                 if (!feedback) return;
@@ -689,6 +965,11 @@
             });
 
             if (form) {
+                const resizeInput = () => {
+                    input.style.height = 'auto';
+                    input.style.height = `${input.scrollHeight}px`;
+                };
+
                 form.addEventListener('submit', async (event) => {
                     event.preventDefault();
                     const content = input.value.trim();
@@ -700,6 +981,7 @@
                     userMessage.textContent = content;
                     messages.appendChild(userMessage);
                     input.value = '';
+                    resizeInput();
                     input.disabled = true;
                     sendButton.disabled = true;
                     sendButton.textContent = 'Attendi…';
@@ -716,8 +998,15 @@
                             }
                         }
                         const assistantMessage = document.createElement('article');
-                        assistantMessage.className = 'message assistant';
-                        assistantMessage.textContent = data.reply;
+
+                        if (data.reply_html) {
+                            assistantMessage.className = 'message assistant rich-text';
+                            assistantMessage.innerHTML = data.reply_html;
+                        } else {
+                            assistantMessage.className = 'message assistant';
+                            assistantMessage.textContent = data.reply;
+                        }
+
                         messages.appendChild(assistantMessage);
                         (data.proposals || (data.proposal ? [data.proposal] : []))
                             .forEach((proposal) => messages.appendChild(renderProposal(proposal)));
@@ -740,6 +1029,9 @@
                         form.requestSubmit();
                     }
                 });
+
+                input.addEventListener('input', resizeInput);
+                resizeInput();
 
                 messages.scrollTop = messages.scrollHeight;
                 input.focus();
@@ -801,7 +1093,7 @@
                     if (rejectButton) rejectButton.disabled = true;
 
                     try {
-                        const selectedItems = [...card.querySelectorAll('[data-knowledge-item]:checked')]
+                        const selectedItems = Array.from(card.querySelectorAll('[data-knowledge-item]:checked'))
                             .map((checkbox) => Number(checkbox.value));
                         const data = await request(card.dataset.confirmUrl, {
                             selected_items: selectedItems,
@@ -838,6 +1130,38 @@
 
             document.querySelectorAll('[data-knowledge-ingestion]').forEach(bindKnowledgeCard);
 
+            restoreKnowledgeDraft();
+
+            if (settingsPanel) {
+                const savedScroll = sessionStorage.getItem('settings-panel-scroll');
+
+                if (savedScroll !== null) {
+                    settingsPanel.scrollTop = Number(savedScroll);
+                    sessionStorage.removeItem('settings-panel-scroll');
+                }
+            }
+
+            knowledgeTextarea?.addEventListener('input', () => {
+                saveKnowledgeDraft();
+                resizeKnowledgeTextarea();
+            });
+
+            knowledgeTextarea?.addEventListener('paste', () => {
+                window.requestAnimationFrame(() => {
+                    saveKnowledgeDraft();
+                    resizeKnowledgeTextarea();
+                });
+            });
+
+            knowledgeTextarea?.addEventListener('blur', () => {
+                saveKnowledgeDraft();
+
+                if (knowledgeReloadPending && !isKnowledgeEditing()) {
+                    knowledgeReloadPending = false;
+                    reloadWithCharacterSettings();
+                }
+            });
+
             knowledgeForm?.addEventListener('submit', async (event) => {
                 event.preventDefault();
                 const button = knowledgeForm.querySelector('button[type="submit"]');
@@ -863,7 +1187,9 @@
                     }
 
                     knowledgeFeedback.textContent = data.message;
+                    clearKnowledgeDraft();
                     knowledgeForm.reset();
+                    resizeKnowledgeTextarea();
                     window.setTimeout(reloadWithCharacterSettings, 250);
                 } catch (error) {
                     knowledgeFeedback.textContent = error.message;
@@ -872,9 +1198,9 @@
                 }
             });
 
-            const processingKnowledgeCards = [
-                ...document.querySelectorAll('[data-knowledge-ingestion][data-status="pending"], [data-knowledge-ingestion][data-status="processing"]'),
-            ];
+            const processingKnowledgeCards = Array.from(
+                document.querySelectorAll('[data-knowledge-ingestion][data-status="pending"], [data-knowledge-ingestion][data-status="processing"]'),
+            );
 
             if (processingKnowledgeCards.length > 0) {
                 window.setInterval(async () => {
@@ -894,7 +1220,7 @@
                                 data.ingestion.status !== card.dataset.status
                                 || Number(data.ingestion.item_count) !== Number(card.dataset.itemCount)
                             ) {
-                                reloadWithCharacterSettings();
+                                queueKnowledgeReload();
                                 return;
                             }
                         } catch {

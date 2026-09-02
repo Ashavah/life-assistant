@@ -74,6 +74,7 @@ enum ServiceProvider: string
                 'user-read-playback-state',
                 'user-read-currently-playing',
                 'user-read-recently-played',
+                'user-top-read',
                 'playlist-read-private',
                 'playlist-modify-private',
                 'user-modify-playback-state',

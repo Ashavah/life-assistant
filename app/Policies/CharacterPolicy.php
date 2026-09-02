@@ -36,7 +36,7 @@ class CharacterPolicy
      */
     public function update(User $user, Character $character): bool
     {
-        return $this->view($user, $character);
+        return $this->view($user, $character) && ! $character->is_global;
     }
 
     /**

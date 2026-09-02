@@ -5,6 +5,7 @@ return [
     'api_key' => env('AI_KEY'),
     'model' => env('AI_MODEL', 'deepseek-chat'),
     'timeout' => (int) env('AI_TIMEOUT', 120),
+    'chat_request_timeout' => (int) env('AI_CHAT_REQUEST_TIMEOUT', 180),
     'connect_timeout' => (int) env('AI_CONNECT_TIMEOUT', 10),
     'temperature' => (float) env('AI_TEMPERATURE', 0.7),
     'max_history_messages' => (int) env('AI_MAX_HISTORY_MESSAGES', 30),

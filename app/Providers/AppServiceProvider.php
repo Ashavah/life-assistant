@@ -13,6 +13,7 @@ use App\Integrations\OAuthDriverRegistry;
 use App\Services\GoogleCalendarGateway;
 use App\Services\GoogleDriveGateway;
 use App\Services\GoogleGmailGateway;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -37,6 +38,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Blade::directive(
+            'markdown',
+            fn (string $expression): string => "<?php echo \App\Services\MarkdownRenderer::toHtml({$expression}); ?>",
+        );
     }
 }
